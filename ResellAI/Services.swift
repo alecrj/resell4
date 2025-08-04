@@ -772,6 +772,14 @@ class BusinessService: ObservableObject {
     }
 }
 
+// MARK: - ASWebAuthenticationPresentationContextProviding
+@available(iOS 12.0, *)
+extension EbayService: ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        return UIApplication.shared.windows.first { $0.isKeyWindow } ?? ASPresentationAnchor()
+    }
+}
+
 // MARK: - AI ANALYSIS SERVICE
 class AIAnalysisService: ObservableObject {
     private let apiKey = Configuration.openAIKey
@@ -978,7 +986,7 @@ class AIAnalysisService: ObservableObject {
 }
 
 // MARK: - EBAY SERVICE (COMPLETE INTEGRATION)
-class EbayService: ObservableObject {
+class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
     
@@ -988,7 +996,8 @@ class EbayService: ObservableObject {
     private let rapidAPIKey = Configuration.rapidAPIKey
     private let rapidAPIBaseURL = "https://ebay-average-selling-price.p.rapidapi.com"
     
-    init() {
+    override init() {
+        super.init()
         loadSavedTokens()
     }
     
@@ -1036,10 +1045,10 @@ class EbayService: ObservableObject {
         // Based on your screenshot, the API expects this format
         let requestBody: [String: Any] = [
             "keywords": query,
-            "excluded_keywords": "locked cracked case box read",
-            "max_search_results": "50",
-            "category_id": "9355",
-            "remove_outliers": "true",
+            "excluded_keywords": "case box read damaged broken",
+            "max_search_results": "30",
+            "category_id": "0", // 0 = all categories
+            "remove_outliers": "false", // Keep all results for now
             "site_id": "0"
         ]
         
@@ -1090,6 +1099,11 @@ class EbayService: ObservableObject {
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     print("✅ Received RapidAPI response")
+                    print("🔍 Full response structure: \(json)")
+                    
+                    // Debug: Print all keys in the response
+                    print("📊 Response keys: \(json.keys)")
+                    
                     let soldItems = self.parseRapidAPIResponse(json)
                     print("✅ Found \(soldItems.count) sold items")
                     
@@ -1100,10 +1114,18 @@ class EbayService: ObservableObject {
                     completion(soldItems)
                 } else {
                     print("❌ Invalid RapidAPI response format")
+                    // Debug: Print raw response
+                    if let rawString = String(data: data, encoding: .utf8) {
+                        print("🔍 Raw response: \(rawString)")
+                    }
                     completion([])
                 }
             } catch {
                 print("❌ Error parsing RapidAPI response: \(error)")
+                // Debug: Print raw response on parse error
+                if let rawString = String(data: data, encoding: .utf8) {
+                    print("🔍 Raw response that failed to parse: \(rawString)")
+                }
                 completion([])
             }
         }.resume()
@@ -1112,25 +1134,70 @@ class EbayService: ObservableObject {
     private func parseRapidAPIResponse(_ json: [String: Any]) -> [EbaySoldItem] {
         var soldItems: [EbaySoldItem] = []
         
-        // Try different possible response structures
-        let possibleKeys = ["results", "items", "data", "sold_items", "listings", "completed_items"]
+        print("🔍 Parsing RapidAPI response...")
+        print("📊 Response structure: \(json)")
+        
+        // Try multiple possible response structures
+        let possibleKeys = [
+            "results", "items", "data", "sold_items", "listings", "completed_items",
+            "search_result", "ebay_results", "sold_listings", "completed_listings",
+            "response", "searchResult", "findCompletedItemsResponse"
+        ]
         
         for key in possibleKeys {
             if let results = json[key] as? [[String: Any]] {
-                print("✅ Found data under key: \(key)")
+                print("✅ Found data under key: \(key) with \(results.count) items")
                 soldItems = parseItemsArray(results)
+                if !soldItems.isEmpty {
+                    break
+                }
+            } else if let results = json[key] as? [String: Any] {
+                // Check if it's a nested structure
+                print("🔍 Checking nested structure under key: \(key)")
+                for nestedKey in possibleKeys {
+                    if let nestedResults = results[nestedKey] as? [[String: Any]] {
+                        print("✅ Found nested data under \(key).\(nestedKey) with \(nestedResults.count) items")
+                        soldItems = parseItemsArray(nestedResults)
+                        if !soldItems.isEmpty {
+                            break
+                        }
+                    }
+                }
                 if !soldItems.isEmpty {
                     break
                 }
             }
         }
         
-        // Also try the root level
-        if soldItems.isEmpty, let rootArray = json as? [[String: Any]] {
-            soldItems = parseItemsArray(rootArray)
+        // If no nested structure, try parsing the root as an array
+        if soldItems.isEmpty {
+            if let rootArray = json as? [[String: Any]] {
+                print("🔍 Trying to parse root as array with \(rootArray.count) items")
+                soldItems = parseItemsArray(rootArray)
+            }
         }
         
-        return soldItems.filter { $0.price > 0 }
+        // Try alternative: check if there's a direct items array at root level
+        if soldItems.isEmpty {
+            let directArrayKeys = ["0", "1", "2", "3", "4"] // Sometimes APIs return items as numbered keys
+            var itemsArray: [[String: Any]] = []
+            
+            for key in directArrayKeys {
+                if let item = json[key] as? [String: Any] {
+                    itemsArray.append(item)
+                }
+            }
+            
+            if !itemsArray.isEmpty {
+                print("🔍 Found items as numbered keys: \(itemsArray.count) items")
+                soldItems = parseItemsArray(itemsArray)
+            }
+        }
+        
+        let validItems = soldItems.filter { $0.price > 0 }
+        print("📊 Parsed \(soldItems.count) total items, \(validItems.count) valid items")
+        
+        return validItems
     }
     
     private func parseItemsArray(_ items: [[String: Any]]) -> [EbaySoldItem] {
@@ -1233,54 +1300,137 @@ class EbayService: ObservableObject {
             return
         }
         
-        print("🌐 Opening eBay auth URL: \(authURL)")
+        print("🌐 eBay auth URL: \(authURL)")
         
-        // Open the eBay authorization URL
+        // Try ASWebAuthenticationSession first (better for OAuth)
+        if #available(iOS 12.0, *) {
+            authenticateWithWebAuthSession(url: url, completion: completion)
+        } else {
+            // Fallback to opening in Safari
+            authenticateWithSafari(url: url, completion: completion)
+        }
+    }
+    
+    @available(iOS 12.0, *)
+    private func authenticateWithWebAuthSession(url: URL, completion: @escaping (Bool) -> Void) {
+        let session = ASWebAuthenticationSession(
+            url: url,
+            callbackURLScheme: "resellai"
+        ) { [weak self] callbackURL, error in
+            
+            if let error = error {
+                print("❌ WebAuthenticationSession error: \(error)")
+                DispatchQueue.main.async {
+                    self?.authStatus = "Authentication failed"
+                    completion(false)
+                }
+                return
+            }
+            
+            guard let callbackURL = callbackURL else {
+                print("❌ No callback URL received")
+                DispatchQueue.main.async {
+                    self?.authStatus = "No callback received"
+                    completion(false)
+                }
+                return
+            }
+            
+            print("✅ Received callback URL: \(callbackURL)")
+            self?.handleAuthCallback(url: callbackURL)
+            completion(true)
+        }
+        
+        // Present the session
+        DispatchQueue.main.async {
+            session.presentationContextProvider = self
+            session.start()
+        }
+    }
+    
+    private func authenticateWithSafari(url: URL, completion: @escaping (Bool) -> Void) {
+        print("🌐 Opening eBay auth in Safari: \(url)")
+        
         DispatchQueue.main.async {
             UIApplication.shared.open(url) { success in
                 if success {
-                    print("✅ Opened eBay auth URL")
+                    print("✅ Opened eBay auth URL in Safari")
+                    completion(true)
                 } else {
                     print("❌ Failed to open eBay auth URL")
+                    self.authStatus = "Failed to open browser"
                     completion(false)
                 }
             }
         }
-        
-        // Note: The completion will be handled by the URL scheme callback
     }
     
     private func buildEbayAuthURL() -> String {
         let baseURL = Configuration.currentEbayAuthBase
         let clientId = Configuration.ebayAPIKey
         let redirectURI = Configuration.ebayRedirectURI
-        let scopes = Configuration.ebayRequiredScopes.joined(separator: " ")
+        let scopes = "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/sell.account"
+        
+        // Properly encode all parameters
+        guard let encodedRedirectURI = redirectURI.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let encodedScopes = scopes.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            return ""
+        }
+        
+        let state = UUID().uuidString
         
         let authURL = "\(baseURL)/oauth2/authorize?" +
                       "client_id=\(clientId)&" +
                       "response_type=code&" +
-                      "redirect_uri=\(redirectURI)&" +
-                      "scope=\(scopes.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&" +
-                      "state=\(UUID().uuidString)"
+                      "redirect_uri=\(encodedRedirectURI)&" +
+                      "scope=\(encodedScopes)&" +
+                      "state=\(state)"
+        
+        print("🔗 eBay Auth URL: \(authURL)")
+        print("🔗 Redirect URI: \(redirectURI)")
+        print("🔗 Encoded Redirect URI: \(encodedRedirectURI)")
         
         return authURL
     }
     
     func handleAuthCallback(url: URL) {
         print("🔗 Handling eBay auth callback: \(url)")
+        print("🔗 URL scheme: \(url.scheme ?? "nil")")
+        print("🔗 URL host: \(url.host ?? "nil")")
+        print("🔗 URL path: \(url.path)")
+        print("🔗 URL query: \(url.query ?? "nil")")
         
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let queryItems = components.queryItems else {
-            print("❌ Invalid callback URL")
+            print("❌ Invalid callback URL components")
+            DispatchQueue.main.async {
+                self.authStatus = "Invalid callback URL"
+            }
             return
         }
         
+        print("🔗 Query items: \(queryItems)")
+        
         if let code = queryItems.first(where: { $0.name == "code" })?.value {
-            print("✅ Received authorization code")
+            print("✅ Received authorization code: \(String(code.prefix(10)))...")
+            DispatchQueue.main.async {
+                self.authStatus = "Exchanging code for token..."
+            }
             exchangeCodeForToken(code: code)
         } else if let error = queryItems.first(where: { $0.name == "error" })?.value {
+            let errorDescription = queryItems.first(where: { $0.name == "error_description" })?.value
             print("❌ eBay auth error: \(error)")
-            authStatus = "Authentication failed"
+            if let description = errorDescription {
+                print("❌ Error description: \(description)")
+            }
+            DispatchQueue.main.async {
+                self.authStatus = "Authentication failed: \(error)"
+            }
+        } else {
+            print("❌ No authorization code or error in callback")
+            DispatchQueue.main.async {
+                self.authStatus = "No authorization code received"
+            }
         }
     }
     

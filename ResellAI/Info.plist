@@ -61,9 +61,16 @@
             <array>
                 <string>resellai</string>
             </array>
+            <key>CFBundleURLIconFile</key>
+            <string></string>
         </dict>
     </array>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
+    <key>LSApplicationQueriesSchemes</key>
+    <array>
+        <string>https</string>
+        <string>http</string>
+    </array>
 </dict>
 </plist>
