@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Ultimate Consolidated Views - FAANG Level Architecture
+//  Complete Reselling Automation with eBay Integration
 //
 
 import SwiftUI
@@ -27,6 +27,12 @@ struct ContentView: View {
             Configuration.validateConfiguration()
             businessService.initialize()
         }
+        .onOpenURL { url in
+            // Handle eBay OAuth callback
+            if url.scheme == "resellai" && url.host == "auth" && url.path == "/ebay" {
+                businessService.handleEbayAuthCallback(url: url)
+            }
+        }
     }
 }
 
@@ -40,7 +46,7 @@ struct BusinessHeader: View {
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(.primary)
                     
-                    Text("Ultimate Reselling Tool")
+                    Text("Complete Reselling Automation")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.secondary)
                 }
@@ -116,7 +122,7 @@ struct BusinessTabView: View {
     }
 }
 
-// MARK: - ANALYSIS VIEW
+// MARK: - ANALYSIS VIEW (UPDATED WITH EBAY INTEGRATION)
 struct AnalysisView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
@@ -126,10 +132,12 @@ struct AnalysisView: View {
     @State private var showingPhotoLibrary = false
     @State private var analysisResult: AnalysisResult?
     @State private var showingItemForm = false
-    @State private var showingDirectListing = false
+    @State private var showingEbayAuth = false
     @State private var showingBarcodeLookup = false
     @State private var scannedBarcode: String?
     @State private var isAnalyzing = false
+    @State private var isCreatingListing = false
+    @State private var listingStatus = ""
     
     var body: some View {
         NavigationView {
@@ -175,18 +183,23 @@ struct AnalysisView: View {
                         )
                     }
                     
-                    // Analysis result
+                    // Analysis result with eBay integration
                     if let analysisResult = analysisResult {
                         AnalysisResultView(
                             analysis: analysisResult,
+                            images: capturedImages,
+                            isEbayAuthenticated: businessService.isEbayAuthenticated,
+                            isCreatingListing: isCreatingListing,
+                            listingStatus: listingStatus,
                             onAddToInventory: addToInventory,
-                            onDirectListing: { showingDirectListing = true }
+                            onAuthenticateEbay: authenticateEbay,
+                            onCreateEbayListing: createEbayListing
                         )
                     }
                 }
                 .padding(20)
             }
-            .navigationTitle("Analyze Item")
+            .navigationTitle("Analyze & List")
             .navigationBarTitleDisplayMode(.inline)
         }
         .sheet(isPresented: $showingCamera) {
@@ -207,16 +220,19 @@ struct AnalysisView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingDirectListing) {
-            if let analysisResult = analysisResult {
-                DirectListingView(analysisResult: analysisResult)
-            }
-        }
         .sheet(isPresented: $showingBarcodeLookup) {
             ResellAIBarcodeScannerView { barcode in
                 scannedBarcode = barcode
                 analyzeBarcodeItem(barcode)
             }
+        }
+        .alert("eBay Authentication", isPresented: $showingEbayAuth) {
+            Button("Cancel", role: .cancel) { }
+            Button("Open eBay") {
+                authenticateEbay()
+            }
+        } message: {
+            Text("Connect your eBay account to automatically create listings")
         }
     }
     
@@ -247,6 +263,68 @@ struct AnalysisView: View {
         showingItemForm = true
     }
     
+    private func authenticateEbay() {
+        businessService.authenticateEbay { success in
+            DispatchQueue.main.async {
+                if success {
+                    print("✅ eBay authentication successful")
+                } else {
+                    print("❌ eBay authentication failed")
+                }
+            }
+        }
+    }
+    
+    private func createEbayListing() {
+        guard let analysisResult = analysisResult else { return }
+        
+        isCreatingListing = true
+        listingStatus = "Creating eBay listing..."
+        
+        businessService.createEbayListing(from: analysisResult, images: capturedImages) { success, errorMessage in
+            DispatchQueue.main.async {
+                self.isCreatingListing = false
+                
+                if success {
+                    self.listingStatus = "✅ Listed on eBay successfully!"
+                    
+                    // Add to inventory with eBay status
+                    let newItem = InventoryItem(
+                        itemNumber: self.inventoryManager.nextItemNumber,
+                        name: analysisResult.name,
+                        category: analysisResult.category,
+                        purchasePrice: 0, // User can update later
+                        suggestedPrice: analysisResult.suggestedPrice,
+                        source: "Analysis",
+                        condition: analysisResult.condition,
+                        title: analysisResult.title,
+                        description: analysisResult.description,
+                        keywords: analysisResult.keywords,
+                        status: .listed,
+                        dateAdded: Date(),
+                        dateListed: Date(),
+                        brand: analysisResult.brand,
+                        exactModel: analysisResult.exactModel ?? "",
+                        styleCode: analysisResult.styleCode ?? "",
+                        size: analysisResult.size ?? "",
+                        colorway: analysisResult.colorway ?? "",
+                        releaseYear: analysisResult.releaseYear ?? "",
+                        subcategory: analysisResult.subcategory ?? ""
+                    )
+                    
+                    let _ = self.inventoryManager.addItem(newItem)
+                    
+                    // Auto-reset after successful listing
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.resetAnalysis()
+                    }
+                } else {
+                    self.listingStatus = "❌ Failed to create listing: \(errorMessage ?? "Unknown error")"
+                }
+            }
+        }
+    }
+    
     private func removeImage(at index: Int) {
         capturedImages.remove(at: index)
     }
@@ -255,6 +333,8 @@ struct AnalysisView: View {
         capturedImages = []
         analysisResult = nil
         scannedBarcode = nil
+        listingStatus = ""
+        isCreatingListing = false
     }
 }
 
@@ -271,7 +351,7 @@ struct CameraSection: View {
     
     var body: some View {
         VStack(spacing: 24) {
-            Text("Take or select photos of your item")
+            Text("Take photos of your item to get real eBay comps and pricing")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -447,11 +527,16 @@ struct AnalysisProgress: View {
     }
 }
 
-// MARK: - ANALYSIS RESULT VIEW
+// MARK: - ANALYSIS RESULT VIEW (UPDATED WITH EBAY FEATURES)
 struct AnalysisResultView: View {
     let analysis: AnalysisResult
+    let images: [UIImage]
+    let isEbayAuthenticated: Bool
+    let isCreatingListing: Bool
+    let listingStatus: String
     let onAddToInventory: () -> Void
-    let onDirectListing: () -> Void
+    let onAuthenticateEbay: () -> Void
+    let onCreateEbayListing: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -464,15 +549,114 @@ struct AnalysisResultView: View {
             // Pricing recommendations
             PricingCard(analysis: analysis)
             
+            // eBay Status and Actions
+            EbayIntegrationCard(
+                isAuthenticated: isEbayAuthenticated,
+                isCreatingListing: isCreatingListing,
+                listingStatus: listingStatus,
+                onAuthenticate: onAuthenticateEbay,
+                onCreateListing: onCreateEbayListing
+            )
+            
             // Action buttons
             HStack(spacing: 12) {
                 Button("Add to Inventory", action: onAddToInventory)
-                    .buttonStyle(PrimaryButtonStyle())
-                
-                Button("List on eBay", action: onDirectListing)
                     .buttonStyle(SecondaryButtonStyle())
+                
+                if isEbayAuthenticated {
+                    Button(isCreatingListing ? "Creating..." : "List on eBay", action: onCreateEbayListing)
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(isCreatingListing)
+                } else {
+                    Button("Connect eBay", action: onAuthenticateEbay)
+                        .buttonStyle(PrimaryButtonStyle())
+                }
             }
         }
+    }
+}
+
+// MARK: - EBAY INTEGRATION CARD
+struct EbayIntegrationCard: View {
+    let isAuthenticated: Bool
+    let isCreatingListing: Bool
+    let listingStatus: String
+    let onAuthenticate: () -> Void
+    let onCreateListing: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("eBay Integration")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(isAuthenticated ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    
+                    Text(isAuthenticated ? "Connected" : "Not Connected")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(isAuthenticated ? .green : .orange)
+                }
+            }
+            
+            if isAuthenticated {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Ready to create optimized eBay listing", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.green)
+                    
+                    Label("Automatic title, description & pricing", systemImage: "wand.and.rays")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                    
+                    Label("Professional photos & SEO optimization", systemImage: "photo.badge.plus")
+                        .font(.subheadline)
+                        .foregroundColor(.purple)
+                }
+                
+                if !listingStatus.isEmpty {
+                    Text(listingStatus)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(listingStatus.contains("✅") ? .green : .red)
+                        .padding(.top, 4)
+                }
+                
+                if isCreatingListing {
+                    HStack {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .scaleEffect(0.8)
+                        
+                        Text("Creating your eBay listing...")
+                            .font(.subheadline)
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.top, 8)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Connect eBay to automatically create listings", systemImage: "link")
+                        .font(.subheadline)
+                        .foregroundColor(.orange)
+                    
+                    Label("One-click posting with optimal pricing", systemImage: "bolt.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                }
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemGray6))
+        )
     }
 }
 
@@ -482,7 +666,7 @@ struct ItemIdentificationCard: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Item Identification")
+            Text("Product Identification")
                 .font(.headline)
                 .fontWeight(.semibold)
             
@@ -508,6 +692,12 @@ struct ItemIdentificationCard: View {
                         .font(.subheadline)
                         .foregroundColor(.orange)
                 }
+                
+                if let confidence = analysis.aiConfidence {
+                    Label("AI Confidence: \(Int(confidence * 100))%", systemImage: "brain.head.profile")
+                        .font(.subheadline)
+                        .foregroundColor(.purple)
+                }
             }
         }
         .padding()
@@ -528,24 +718,43 @@ struct MarketAnalysisCard: View {
                 .font(.headline)
                 .fontWeight(.semibold)
             
-            HStack(spacing: 16) {
-                MarketStat(
-                    title: "Sold Items",
-                    value: "\(analysis.soldListingsCount ?? 0)",
-                    color: .blue
-                )
+            if let soldCount = analysis.soldListingsCount, soldCount > 0 {
+                HStack(spacing: 16) {
+                    MarketStat(
+                        title: "Sold Items",
+                        value: "\(soldCount)",
+                        color: .blue
+                    )
+                    
+                    MarketStat(
+                        title: "Avg Price",
+                        value: "$\(Int(analysis.averagePrice ?? 0))",
+                        color: .green
+                    )
+                    
+                    MarketStat(
+                        title: "Confidence",
+                        value: "\(Int((analysis.marketConfidence ?? 0) * 100))%",
+                        color: .purple
+                    )
+                }
                 
-                MarketStat(
-                    title: "Avg Price",
-                    value: "$\(Int(analysis.averagePrice ?? 0))",
-                    color: .green
-                )
-                
-                MarketStat(
-                    title: "Confidence",
-                    value: "\(Int((analysis.marketConfidence ?? 0) * 100))%",
-                    color: .purple
-                )
+                if let demandLevel = analysis.demandLevel {
+                    Label("Demand Level: \(demandLevel)", systemImage: "chart.bar.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.orange)
+                        .padding(.top, 4)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("No recent sales data found", systemImage: "exclamationmark.triangle")
+                        .font(.subheadline)
+                        .foregroundColor(.orange)
+                    
+                    Text("Pricing based on category and brand analysis")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
         .padding()
@@ -665,11 +874,15 @@ struct PriceOption: View {
 // MARK: - DASHBOARD VIEW
 struct DashboardView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
+    @EnvironmentObject var businessService: BusinessService
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
+                    // eBay Integration Status
+                    EbayStatusCard(isAuthenticated: businessService.isEbayAuthenticated)
+                    
                     // Stats overview
                     DashboardStats(inventoryManager: inventoryManager)
                     
@@ -683,6 +896,43 @@ struct DashboardView: View {
             }
             .navigationTitle("Dashboard")
         }
+    }
+}
+
+// MARK: - EBAY STATUS CARD
+struct EbayStatusCard: View {
+    let isAuthenticated: Bool
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("eBay Integration")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Text(isAuthenticated ? "Connected and ready to list" : "Connect to start auto-listing")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(isAuthenticated ? Color.green : Color.orange)
+                    .frame(width: 12, height: 12)
+                
+                Text(isAuthenticated ? "Connected" : "Setup Required")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(isAuthenticated ? .green : .orange)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemGray6))
+        )
     }
 }
 
@@ -762,8 +1012,15 @@ struct RecentItemsCard: View {
                 .font(.headline)
                 .fontWeight(.semibold)
             
-            ForEach(items) { item in
-                RecentItemRow(item: item)
+            if items.isEmpty {
+                Text("No items yet - start by analyzing your first item!")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 20)
+            } else {
+                ForEach(items) { item in
+                    RecentItemRow(item: item)
+                }
             }
         }
         .padding()
@@ -1168,8 +1425,17 @@ struct StorageByCategory: View {
                 .font(.headline)
                 .fontWeight(.semibold)
             
-            ForEach(inventoryManager.getInventoryOverview(), id: \.letter) { overview in
-                CategoryStorageCard(overview: overview)
+            let overview = inventoryManager.getInventoryOverview()
+            
+            if overview.isEmpty {
+                Text("No items stored yet")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .padding(.vertical, 20)
+            } else {
+                ForEach(overview, id: \.letter) { overview in
+                    CategoryStorageCard(overview: overview)
+                }
             }
         }
     }
@@ -1217,6 +1483,22 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             List {
+                Section("eBay Integration") {
+                    HStack {
+                        Label("eBay Status", systemImage: "network")
+                        Spacer()
+                        Text(businessService.isEbayAuthenticated ? "Connected" : "Not Connected")
+                            .foregroundColor(businessService.isEbayAuthenticated ? .green : .orange)
+                    }
+                    
+                    if !businessService.isEbayAuthenticated {
+                        Button("Connect eBay Account") {
+                            businessService.authenticateEbay { _ in }
+                        }
+                        .foregroundColor(.blue)
+                    }
+                }
+                
                 Section("Business") {
                     SettingsRow(
                         title: "Export Data",
@@ -1372,56 +1654,120 @@ struct ResellAIBarcodeScannerView: View {
     let completion: (String) -> Void
     
     var body: some View {
-        Text("Barcode Scanner Placeholder")
-            .onAppear {
-                // Simulate barcode scan
+        VStack {
+            Text("Barcode Scanner")
+                .font(.title2)
+                .padding()
+            
+            Text("Point camera at barcode")
+                .foregroundColor(.secondary)
+                .padding()
+            
+            Spacer()
+            
+            Button("Simulate Scan") {
                 completion("123456789")
             }
+            .buttonStyle(.borderedProminent)
+            .padding()
+        }
+        .onAppear {
+            // In production, implement actual barcode scanning
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                completion("123456789")
+            }
+        }
     }
 }
 
 struct ItemFormView: View {
     let analysisResult: AnalysisResult
     let completion: (InventoryItem) -> Void
+    @Environment(\.dismiss) private var dismiss
+    
+    @State private var purchasePrice = ""
+    @State private var source = "Thrift Store"
+    @State private var storageLocation = ""
     
     var body: some View {
         NavigationView {
-            VStack {
-                Text("Item Form Placeholder")
-                Button("Save") {
-                    // Create item from analysis result
-                    let item = InventoryItem(
-                        itemNumber: 1,
-                        name: analysisResult.name,
-                        category: analysisResult.category,
-                        purchasePrice: 0,
-                        suggestedPrice: analysisResult.suggestedPrice,
-                        source: "Analysis",
-                        condition: analysisResult.condition,
-                        title: analysisResult.title,
-                        description: analysisResult.description,
-                        keywords: analysisResult.keywords,
-                        status: .toList,
-                        dateAdded: Date()
-                    )
-                    completion(item)
+            Form {
+                Section("Item Details") {
+                    HStack {
+                        Text("Name")
+                        Spacer()
+                        Text(analysisResult.name)
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    HStack {
+                        Text("Suggested Price")
+                        Spacer()
+                        Text("$\(String(format: "%.2f", analysisResult.suggestedPrice))")
+                            .foregroundColor(.green)
+                    }
+                }
+                
+                Section("Additional Info") {
+                    HStack {
+                        Text("Purchase Price")
+                        TextField("$0.00", text: $purchasePrice)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    
+                    HStack {
+                        Text("Source")
+                        TextField("Where did you buy this?", text: $source)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    
+                    HStack {
+                        Text("Storage Location")
+                        TextField("Bin A-1", text: $storageLocation)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
             }
-            .navigationTitle("Add Item")
-        }
-    }
-}
-
-struct DirectListingView: View {
-    let analysisResult: AnalysisResult
-    
-    var body: some View {
-        NavigationView {
-            VStack {
-                Text("Direct eBay Listing Placeholder")
-                Text("Would create eBay listing for: \(analysisResult.name)")
+            .navigationTitle("Add to Inventory")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        let item = InventoryItem(
+                            itemNumber: 1, // Will be set by inventory manager
+                            name: analysisResult.name,
+                            category: analysisResult.category,
+                            purchasePrice: Double(purchasePrice) ?? 0,
+                            suggestedPrice: analysisResult.suggestedPrice,
+                            source: source,
+                            condition: analysisResult.condition,
+                            title: analysisResult.title,
+                            description: analysisResult.description,
+                            keywords: analysisResult.keywords,
+                            status: .toList,
+                            dateAdded: Date(),
+                            brand: analysisResult.brand,
+                            exactModel: analysisResult.exactModel ?? "",
+                            styleCode: analysisResult.styleCode ?? "",
+                            size: analysisResult.size ?? "",
+                            colorway: analysisResult.colorway ?? "",
+                            releaseYear: analysisResult.releaseYear ?? "",
+                            subcategory: analysisResult.subcategory ?? "",
+                            storageLocation: storageLocation
+                        )
+                        completion(item)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
             }
-            .navigationTitle("List on eBay")
         }
     }
 }
@@ -1429,53 +1775,146 @@ struct DirectListingView: View {
 struct InventoryFiltersView: View {
     @Binding var selectedStatus: ItemStatus?
     @Binding var selectedCategory: String
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         NavigationView {
             Form {
                 Section("Status") {
+                    Button("All") {
+                        selectedStatus = nil
+                        dismiss()
+                    }
+                    
                     ForEach(ItemStatus.allCases, id: \.self) { status in
                         Button(status.rawValue) {
                             selectedStatus = status
+                            dismiss()
                         }
                     }
                 }
             }
             .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
 
 struct ExportView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
         NavigationView {
-            VStack {
-                Text("Export Options Placeholder")
-                Button("Export CSV") {
+            VStack(spacing: 20) {
+                Text("Export Options")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                
+                Button("Export as CSV") {
                     let csv = inventoryManager.exportToCSV()
                     print("CSV Export: \(csv)")
+                    // In production, implement file sharing
+                }
+                .buttonStyle(.borderedProminent)
+                
+                Text("Export your inventory data for external analysis or backup")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Export Data")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
                 }
             }
-            .navigationTitle("Export Data")
         }
     }
 }
 
 struct APIConfigView: View {
+    @Environment(\.dismiss) private var dismiss
+    
     var body: some View {
         NavigationView {
-            VStack {
-                Text("API Configuration Placeholder")
+            VStack(spacing: 20) {
+                Text("API Configuration")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                
+                VStack(alignment: .leading, spacing: 12) {
+                    ConfigStatusRow(title: "OpenAI", isConfigured: !Configuration.openAIKey.isEmpty)
+                    ConfigStatusRow(title: "Google Sheets", isConfigured: !Configuration.googleScriptURL.isEmpty)
+                    ConfigStatusRow(title: "RapidAPI", isConfigured: !Configuration.rapidAPIKey.isEmpty)
+                    ConfigStatusRow(title: "eBay API", isConfigured: Configuration.isEbayConfigured)
+                }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.systemGray6))
+                )
+                
                 Text("Status: \(Configuration.configurationStatus)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
             }
+            .padding()
             .navigationTitle("API Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct ConfigStatusRow: View {
+    let title: String
+    let isConfigured: Bool
+    
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.subheadline)
+            
+            Spacer()
+            
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(isConfigured ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+                
+                Text(isConfigured ? "Configured" : "Missing")
+                    .font(.caption)
+                    .foregroundColor(isConfigured ? .green : .red)
+            }
         }
     }
 }
 
 struct AboutView: View {
+    @Environment(\.dismiss) private var dismiss
+    
     var body: some View {
         NavigationView {
             ScrollView {
@@ -1492,14 +1931,56 @@ struct AboutView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     
-                    Text("The ultimate reselling business tool powered by AI")
+                    Text("The complete reselling automation tool powered by AI. Take a photo, get real eBay comps, and automatically create optimized listings.")
                         .font(.body)
                         .multilineTextAlignment(.center)
                         .padding()
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Features:")
+                            .font(.headline)
+                            .fontWeight(.semibold)
+                        
+                        FeatureRow(icon: "viewfinder", text: "AI-powered product identification")
+                        FeatureRow(icon: "chart.bar", text: "Real eBay sold comps analysis")
+                        FeatureRow(icon: "dollarsign.circle", text: "Market-driven pricing")
+                        FeatureRow(icon: "network", text: "Automatic eBay listing creation")
+                        FeatureRow(icon: "list.bullet", text: "Complete inventory management")
+                        FeatureRow(icon: "chart.line.uptrend.xyaxis", text: "Business analytics & insights")
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.systemGray6))
+                    )
                 }
                 .padding()
             }
             .navigationTitle("About")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct FeatureRow: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(.blue)
+                .frame(width: 20)
+            
+            Text(text)
+                .font(.subheadline)
         }
     }
 }
