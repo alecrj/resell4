@@ -1,53 +1,6 @@
-# Xcode specific
-.DS_Store
-*.xcworkspace
-xcuserdata/
-DerivedData/
-build/
-*.xcuserstate
-*.xcscheme
-
-# Build files
-*.ipa
-*.dSYM.zip
-*.dSYM
-
-# SwiftPM
-Packages/
-.swiftpm/
-Package.resolved
-
-# CocoaPods (if using)
-Pods/
-Podfile.lock
-
-# Carthage (if using)
-Carthage/
-
-# Fastlane (if using)
-fastlane/report.xml
-fastlane/Preview.html
-fastlane/screenshots
-fastlane/test_output
-
-# Configuration files with sensitive data
+*.env
+*.plist
+Secrets.swift
 Configuration.swift
-
-# Misc
-*.swp
-*.lock
-.vscode/
-.idea/
-
-# Xcode project specific
-*.xcworkspace/xcshareddata/
-!*.xcworkspace/xcshareddata/swiftpm/Package.resolved
-
-# Generated files
-**/Generated/
-**/*.generated.swift
-
-# Temporary files
-*.tmp
-*.bak
-*~
+.DS_Store
+xcuserdata/
