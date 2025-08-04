@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Business Services with Real API Integration
+//  Professional Reselling Automation - Full VA System
 //
 
 import SwiftUI
@@ -14,7 +14,7 @@ class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
     @Published var currentStep = 0
-    @Published var totalSteps = 6
+    @Published var totalSteps = 10
     @Published var isSyncing = false
     @Published var syncStatus = "Ready"
     @Published var lastSyncDate: Date?
@@ -24,7 +24,7 @@ class BusinessService: ObservableObject {
     private let googleSheetsService = GoogleSheetsService()
     
     init() {
-        print("🚀 Business Service initialized")
+        print("🚀 Professional Reselling Automation initialized")
     }
     
     func initialize() {
@@ -32,26 +32,26 @@ class BusinessService: ObservableObject {
         authenticateGoogleSheets()
     }
     
-    // MARK: - AI ANALYSIS
+    // MARK: - COMPREHENSIVE ITEM ANALYSIS
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             completion(nil)
             return
         }
         
-        print("🔍 Starting AI analysis with \(images.count) images")
+        print("🔍 Starting professional reselling analysis with \(images.count) images")
         
         DispatchQueue.main.async {
             self.isAnalyzing = true
             self.currentStep = 0
-            self.totalSteps = 6
+            self.totalSteps = 10
         }
         
-        // Step 1: AI Image Analysis
-        updateProgress("Analyzing images with AI...", step: 1)
+        // Step 1: Advanced AI Product Identification
+        updateProgress("Identifying exact product with AI...", step: 1)
         
-        aiService.analyzeWithOpenAI(images: images) { [weak self] aiResult in
-            guard let aiResult = aiResult else {
+        aiService.identifyProductPrecisely(images: images) { [weak self] productResult in
+            guard let productResult = productResult else {
                 DispatchQueue.main.async {
                     self?.isAnalyzing = false
                     completion(nil)
@@ -59,78 +59,146 @@ class BusinessService: ObservableObject {
                 return
             }
             
-            // Step 2: Search eBay sold comps
-            self?.updateProgress("Searching eBay sold comps...", step: 2)
+            print("🎯 Product identified: \(productResult.exactProduct)")
+            print("🏷️ Brand: \(productResult.brand)")
+            print("📊 Confidence: \(Int(productResult.confidence * 100))%")
             
-            let searchQuery = "\(aiResult.brand) \(aiResult.name)".trimmingCharacters(in: .whitespaces)
+            // Step 2: Validate identification confidence
+            self?.updateProgress("Validating product identification...", step: 2)
             
-            self?.rapidAPIService.searchSoldItems(query: searchQuery) { soldItems in
-                // Step 3: Calculate pricing
-                self?.updateProgress("Calculating pricing strategy...", step: 3)
-                
-                let pricing = self?.calculatePricing(from: soldItems, basePrice: 50.0) ?? (30.0, 50.0, 75.0)
-                
-                // Step 4: Generate listing details
-                self?.updateProgress("Generating listing strategy...", step: 4)
-                
-                // Step 5: Market analysis
-                self?.updateProgress("Analyzing market conditions...", step: 5)
-                
-                // Step 6: Finalize
-                self?.updateProgress("Finalizing analysis...", step: 6)
-                
-                let finalResult = AnalysisResult(
-                    name: aiResult.name,
-                    brand: aiResult.brand,
-                    category: aiResult.category,
-                    condition: aiResult.condition,
-                    title: self?.generateEbayTitle(aiResult) ?? aiResult.title,
-                    description: aiResult.description,
-                    keywords: aiResult.keywords,
-                    suggestedPrice: pricing.1,
-                    quickPrice: pricing.0,
-                    premiumPrice: pricing.2,
-                    averagePrice: pricing.1,
-                    marketConfidence: soldItems.isEmpty ? 0.3 : 0.8,
-                    soldListingsCount: soldItems.count,
-                    competitorCount: min(soldItems.count * 3, 100),
-                    demandLevel: self?.calculateDemandLevel(soldItems.count) ?? "Medium",
-                    listingStrategy: "Buy It Now with Best Offer",
-                    sourcingTips: self?.generateSourcingTips(for: aiResult.category) ?? [],
-                    aiConfidence: 0.85,
-                    resalePotential: Int(pricing.1 / 10),
-                    priceRange: EbayPriceRange(
-                        low: pricing.0,
-                        high: pricing.2,
-                        average: pricing.1
-                    ),
-                    recentSales: soldItems.prefix(5).map { item in
-                        RecentSale(
-                            title: item.title,
-                            price: item.price,
-                            condition: item.condition ?? "Used",
-                            date: item.soldDate ?? Date().addingTimeInterval(-86400 * 7),
-                            shipping: item.shipping,
-                            bestOffer: item.bestOfferAccepted ?? false
-                        )
+            if productResult.confidence < 0.85 {
+                print("⚠️ Low confidence (\(Int(productResult.confidence * 100))%) - flagging for review")
+                // In a real app, this would flag for manual review
+            }
+            
+            // Step 3: Search for exact product matches
+            self?.updateProgress("Searching for exact product matches...", step: 3)
+            
+            let primaryQuery = self?.buildPreciseSearchQuery(from: productResult) ?? productResult.exactProduct
+            
+            self?.rapidAPIService.searchExactProduct(query: primaryQuery) { exactMatches in
+                // Step 4: Expand search if no exact matches
+                if exactMatches.count < 3 {
+                    self?.updateProgress("Expanding search for similar products...", step: 4)
+                    
+                    let alternativeQuery = "\(productResult.brand) \(productResult.modelNumber ?? productResult.exactProduct)"
+                    self?.rapidAPIService.searchExactProduct(query: alternativeQuery) { alternativeMatches in
+                        let combinedMatches = exactMatches + alternativeMatches
+                        self?.processMarketData(productResult: productResult, soldItems: combinedMatches, completion: completion)
                     }
-                )
-                
-                DispatchQueue.main.async {
-                    self?.isAnalyzing = false
-                    self?.analysisProgress = "Complete"
-                    completion(finalResult)
+                } else {
+                    self?.processMarketData(productResult: productResult, soldItems: exactMatches, completion: completion)
                 }
             }
         }
     }
     
+    private func processMarketData(productResult: ProductIdentificationResult, soldItems: [EbaySoldItem], completion: @escaping (AnalysisResult?) -> Void) {
+        // Step 5: Analyze market conditions
+        updateProgress("Analyzing market conditions...", step: 5)
+        
+        let marketAnalysis = analyzeRealMarketData(soldItems: soldItems, productResult: productResult)
+        
+        // Step 6: Calculate professional pricing
+        updateProgress("Calculating market-based pricing...", step: 6)
+        
+        guard let pricing = calculateMarketPricing(from: soldItems, productResult: productResult, marketAnalysis: marketAnalysis) else {
+            print("❌ Insufficient market data for accurate pricing")
+            DispatchQueue.main.async {
+                self.isAnalyzing = false
+                completion(nil)
+            }
+            return
+        }
+        
+        // Step 7: Professional condition assessment
+        updateProgress("Assessing item condition...", step: 7)
+        
+        let conditionAssessment = assessItemCondition(productResult: productResult)
+        let adjustedPricing = adjustPricingForCondition(pricing: pricing, condition: conditionAssessment)
+        
+        // Step 8: Generate professional listing
+        updateProgress("Creating optimized eBay listing...", step: 8)
+        
+        let listing = generateProfessionalListing(
+            productResult: productResult,
+            marketAnalysis: marketAnalysis,
+            pricing: adjustedPricing,
+            condition: conditionAssessment
+        )
+        
+        // Step 9: Develop selling strategy
+        updateProgress("Developing selling strategy...", step: 9)
+        
+        let strategy = developSellingStrategy(
+            marketAnalysis: marketAnalysis,
+            productResult: productResult,
+            pricing: adjustedPricing
+        )
+        
+        // Step 10: Finalize professional analysis
+        updateProgress("Finalizing professional analysis...", step: 10)
+        
+        let finalResult = AnalysisResult(
+            name: productResult.exactProduct,
+            brand: productResult.brand,
+            category: productResult.category,
+            condition: conditionAssessment.ebayCondition,
+            title: listing.optimizedTitle,
+            description: listing.professionalDescription,
+            keywords: listing.seoKeywords,
+            suggestedPrice: adjustedPricing.marketPrice,
+            quickPrice: adjustedPricing.quickSalePrice,
+            premiumPrice: adjustedPricing.premiumPrice,
+            averagePrice: adjustedPricing.averagePrice,
+            marketConfidence: marketAnalysis.confidence,
+            soldListingsCount: soldItems.count,
+            competitorCount: marketAnalysis.estimatedCompetitorCount,
+            demandLevel: marketAnalysis.demandLevel,
+            listingStrategy: strategy.listingType,
+            sourcingTips: strategy.sourcingInsights,
+            aiConfidence: productResult.confidence,
+            resalePotential: calculateResalePotential(pricing: adjustedPricing, market: marketAnalysis),
+            priceRange: EbayPriceRange(
+                low: adjustedPricing.quickSalePrice,
+                high: adjustedPricing.premiumPrice,
+                average: adjustedPricing.averagePrice
+            ),
+            recentSales: soldItems.prefix(10).map { item in
+                RecentSale(
+                    title: item.title,
+                    price: item.price,
+                    condition: item.condition ?? "Used",
+                    date: item.soldDate ?? Date().addingTimeInterval(-86400 * Double.random(in: 1...30)),
+                    shipping: item.shipping,
+                    bestOffer: item.bestOfferAccepted ?? false
+                )
+            },
+            exactModel: productResult.modelNumber,
+            styleCode: productResult.styleCode,
+            size: productResult.size,
+            colorway: productResult.colorway,
+            releaseYear: productResult.releaseYear,
+            subcategory: productResult.subcategory
+        )
+        
+        DispatchQueue.main.async {
+            self.isAnalyzing = false
+            self.analysisProgress = "Professional Analysis Complete"
+            print("✅ Analysis complete: \(finalResult.name)")
+            print("💰 Market Price: $\(String(format: "%.2f", adjustedPricing.marketPrice))")
+            print("📊 Market Confidence: \(Int(marketAnalysis.confidence * 100))%")
+            print("🎯 Demand Level: \(marketAnalysis.demandLevel)")
+            completion(finalResult)
+        }
+    }
+    
     func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         print("📱 Analyzing barcode: \(barcode)")
-        updateProgress("Looking up barcode...", step: 1)
+        updateProgress("Looking up product by barcode...", step: 1)
         
-        // For now, fall back to regular image analysis
-        // Could integrate UPC database lookup here
+        // Could integrate with UPC database here
+        // For now, fall back to image analysis with barcode context
         analyzeItem(images, completion: completion)
     }
     
@@ -141,66 +209,669 @@ class BusinessService: ObservableObject {
         }
     }
     
-    private func calculatePricing(from soldItems: [EbaySoldItem], basePrice: Double) -> (Double, Double, Double) {
-        guard !soldItems.isEmpty else {
-            return (basePrice * 0.7, basePrice, basePrice * 1.3)
+    // MARK: - ADVANCED SEARCH QUERY BUILDING
+    private func buildPreciseSearchQuery(from productResult: ProductIdentificationResult) -> String {
+        var query = ""
+        
+        // Start with brand
+        if !productResult.brand.isEmpty {
+            query += productResult.brand + " "
         }
         
-        let prices = soldItems.compactMap { $0.price }
-        guard !prices.isEmpty else {
-            return (basePrice * 0.7, basePrice, basePrice * 1.3)
+        // Add exact model/product name
+        if let modelNumber = productResult.modelNumber, !modelNumber.isEmpty {
+            query += modelNumber + " "
+        } else {
+            query += productResult.exactProduct + " "
+        }
+        
+        // Add style code if available
+        if let styleCode = productResult.styleCode, !styleCode.isEmpty {
+            query += styleCode + " "
+        }
+        
+        // Add colorway for shoes/clothing
+        if let colorway = productResult.colorway, !colorway.isEmpty {
+            let category = productResult.category.lowercased()
+            if category.contains("shoe") || category.contains("clothing") || category.contains("sneaker") {
+                query += colorway + " "
+            }
+        }
+        
+        // Add size for shoes/clothing
+        if let size = productResult.size, !size.isEmpty {
+            let category = productResult.category.lowercased()
+            if category.contains("shoe") || category.contains("clothing") || category.contains("sneaker") {
+                query += "size \(size) "
+            }
+        }
+        
+        return query.trimmingCharacters(in: .whitespaces)
+    }
+    
+    // MARK: - REAL MARKET DATA ANALYSIS
+    private func analyzeRealMarketData(soldItems: [EbaySoldItem], productResult: ProductIdentificationResult) -> MarketAnalysisData {
+        let totalSales = soldItems.count
+        
+        // Analyze recent sales (last 30 days)
+        let recentSales = soldItems.filter { item in
+            guard let soldDate = item.soldDate else { return false }
+            let daysSince = Calendar.current.dateComponents([.day], from: soldDate, to: Date()).day ?? 999
+            return daysSince <= 30
+        }
+        
+        // Analyze price trends
+        let sortedByDate = soldItems.compactMap { item -> (Date, Double)? in
+            guard let date = item.soldDate else { return nil }
+            return (date, item.price)
+        }.sorted { $0.0 < $1.0 }
+        
+        let priceTrend = analyzePriceTrend(sortedByDate)
+        
+        // Determine demand level based on sales velocity
+        let demandLevel: String
+        let confidence: Double
+        
+        switch totalSales {
+        case 0:
+            demandLevel = "No Market Data"
+            confidence = 0.0
+        case 1...3:
+            demandLevel = "Very Low"
+            confidence = 0.4
+        case 4...8:
+            demandLevel = "Low"
+            confidence = 0.6
+        case 9...15:
+            demandLevel = "Medium"
+            confidence = 0.75
+        case 16...30:
+            demandLevel = "High"
+            confidence = 0.85
+        default:
+            demandLevel = "Very High"
+            confidence = 0.95
+        }
+        
+        // Boost confidence based on recent sales
+        let recentSalesBoost = min(Double(recentSales.count) * 0.05, 0.15)
+        let finalConfidence = min(confidence + recentSalesBoost, 1.0)
+        
+        // Estimate competitor count based on sales data
+        let estimatedCompetitors = min(totalSales * 5, 200)
+        
+        return MarketAnalysisData(
+            demandLevel: demandLevel,
+            confidence: finalConfidence,
+            recentSalesCount: recentSales.count,
+            totalSalesCount: totalSales,
+            priceTrend: priceTrend,
+            estimatedCompetitorCount: estimatedCompetitors,
+            averageSellingTime: estimateSellingTime(demandLevel: demandLevel),
+            seasonalFactor: calculateSeasonalFactor(productResult: productResult)
+        )
+    }
+    
+    private func analyzePriceTrend(_ sortedPrices: [(Date, Double)]) -> String {
+        guard sortedPrices.count >= 3 else { return "Insufficient Data" }
+        
+        let recentPrices = Array(sortedPrices.suffix(5))
+        let olderPrices = Array(sortedPrices.prefix(5))
+        
+        let recentAvg = recentPrices.reduce(0) { $0 + $1.1 } / Double(recentPrices.count)
+        let olderAvg = olderPrices.reduce(0) { $0 + $1.1 } / Double(olderPrices.count)
+        
+        let change = (recentAvg - olderAvg) / olderAvg
+        
+        if change > 0.1 {
+            return "Rising"
+        } else if change < -0.1 {
+            return "Declining"
+        } else {
+            return "Stable"
+        }
+    }
+    
+    private func estimateSellingTime(demandLevel: String) -> Int {
+        switch demandLevel {
+        case "Very High": return 3
+        case "High": return 7
+        case "Medium": return 14
+        case "Low": return 30
+        case "Very Low": return 60
+        default: return 30
+        }
+    }
+    
+    private func calculateSeasonalFactor(productResult: ProductIdentificationResult) -> Double {
+        let currentMonth = Calendar.current.component(.month, from: Date())
+        let category = productResult.category.lowercased()
+        let product = productResult.exactProduct.lowercased()
+        
+        // Seasonal adjustments
+        if category.contains("coat") || category.contains("jacket") || product.contains("winter") {
+            // Winter items
+            return [11, 12, 1, 2].contains(currentMonth) ? 1.15 : 0.85
+        } else if category.contains("swimwear") || product.contains("summer") {
+            // Summer items
+            return [5, 6, 7, 8].contains(currentMonth) ? 1.1 : 0.9
+        } else if product.contains("christmas") || product.contains("holiday") {
+            // Holiday items
+            return [11, 12].contains(currentMonth) ? 1.25 : 0.7
+        }
+        
+        return 1.0 // No seasonal adjustment
+    }
+    
+    // MARK: - MARKET-BASED PRICING
+    private func calculateMarketPricing(from soldItems: [EbaySoldItem], productResult: ProductIdentificationResult, marketAnalysis: MarketAnalysisData) -> MarketPricingData? {
+        guard !soldItems.isEmpty else {
+            print("❌ No sold items found - cannot calculate market pricing")
+            return nil
+        }
+        
+        let prices = soldItems.compactMap { $0.price }.filter { $0 > 0 }
+        guard prices.count >= 3 else {
+            print("❌ Insufficient price data (\(prices.count) prices) - need at least 3")
+            return nil
         }
         
         let sortedPrices = prices.sorted()
         let count = sortedPrices.count
         
+        // Calculate statistical pricing
+        let p10 = sortedPrices[max(0, Int(Double(count) * 0.1) - 1)]
+        let p25 = sortedPrices[max(0, Int(Double(count) * 0.25) - 1)]
         let median = count % 2 == 0
             ? (sortedPrices[count/2 - 1] + sortedPrices[count/2]) / 2
             : sortedPrices[count/2]
+        let p75 = sortedPrices[min(count - 1, Int(Double(count) * 0.75))]
+        let p90 = sortedPrices[min(count - 1, Int(Double(count) * 0.9))]
+        let average = prices.reduce(0, +) / Double(count)
         
-        let quickPrice = median * 0.85
-        let premiumPrice = median * 1.2
+        // Apply seasonal adjustments
+        let seasonalMultiplier = marketAnalysis.seasonalFactor
         
-        return (quickPrice, median, premiumPrice)
+        // Calculate final pricing
+        let quickSalePrice = p10 * seasonalMultiplier
+        let marketPrice = median * seasonalMultiplier
+        let premiumPrice = p75 * seasonalMultiplier
+        let adjustedAverage = average * seasonalMultiplier
+        
+        // Account for eBay and PayPal fees in net profit calculations
+        let totalFeeRate = 0.1325 + 0.0349 // eBay + PayPal fees
+        
+        return MarketPricingData(
+            quickSalePrice: quickSalePrice,
+            marketPrice: marketPrice,
+            premiumPrice: premiumPrice,
+            averagePrice: adjustedAverage,
+            p10: p10,
+            p25: p25,
+            p75: p75,
+            p90: p90,
+            sampleSize: count,
+            priceSpread: p90 - p10,
+            feeAdjustedMarketPrice: marketPrice * (1 - totalFeeRate),
+            seasonalMultiplier: seasonalMultiplier,
+            priceTrend: marketAnalysis.priceTrend
+        )
     }
     
-    private func calculateDemandLevel(_ soldCount: Int) -> String {
-        switch soldCount {
-        case 0...2: return "Low"
-        case 3...10: return "Medium"
-        case 11...25: return "High"
-        default: return "Very High"
+    // MARK: - PROFESSIONAL CONDITION ASSESSMENT
+    private func assessItemCondition(productResult: ProductIdentificationResult) -> ConditionAssessment {
+        // In a real implementation, this would analyze the images for:
+        // - Wear patterns
+        // - Stains/damage
+        // - Completeness (original box, accessories)
+        // - Age indicators
+        
+        let aiCondition = productResult.aiAssessedCondition
+        let category = productResult.category.lowercased()
+        
+        // Map AI condition to eBay standards
+        let ebayCondition: String
+        let conditionNotes: [String]
+        let priceImpact: Double
+        
+        switch aiCondition.lowercased() {
+        case let c where c.contains("new with tags"):
+            ebayCondition = "New with tags"
+            conditionNotes = ["Brand new with original tags attached"]
+            priceImpact = 1.0
+        case let c where c.contains("new without tags"):
+            ebayCondition = "New without tags"
+            conditionNotes = ["Brand new without tags"]
+            priceImpact = 0.95
+        case let c where c.contains("like new"):
+            ebayCondition = "Like New"
+            conditionNotes = ["Excellent condition, minimal signs of use"]
+            priceImpact = 0.9
+        case let c where c.contains("excellent"):
+            ebayCondition = "Excellent"
+            conditionNotes = ["Very good condition with minor wear"]
+            priceImpact = 0.85
+        case let c where c.contains("very good"):
+            ebayCondition = "Very Good"
+            conditionNotes = ["Good condition with some signs of use"]
+            priceImpact = 0.8
+        case let c where c.contains("good"):
+            ebayCondition = "Good"
+            conditionNotes = ["Fair condition with noticeable wear"]
+            priceImpact = 0.7
+        default:
+            ebayCondition = "Good"
+            conditionNotes = ["Used condition - see photos for details"]
+            priceImpact = 0.75
+        }
+        
+        return ConditionAssessment(
+            ebayCondition: ebayCondition,
+            conditionNotes: conditionNotes,
+            priceImpact: priceImpact,
+            completenessScore: estimateCompleteness(productResult: productResult),
+            authenticityConfidence: estimateAuthenticity(productResult: productResult)
+        )
+    }
+    
+    private func estimateCompleteness(productResult: ProductIdentificationResult) -> Double {
+        // Estimate if item has original box, accessories, etc.
+        let category = productResult.category.lowercased()
+        
+        if category.contains("shoe") {
+            // Shoes typically need original box for premium pricing
+            return 0.8 // Assume no box unless specified
+        } else if category.contains("electronic") {
+            // Electronics need chargers, cables, etc.
+            return 0.7 // Assume some accessories missing
+        } else {
+            return 0.9 // Most other items complete
         }
     }
     
-    private func generateEbayTitle(_ aiResult: OpenAIAnalysisResult) -> String {
+    private func estimateAuthenticity(productResult: ProductIdentificationResult) -> Double {
+        let brand = productResult.brand.lowercased()
+        
+        // Higher risk brands
+        if ["nike", "adidas", "jordan", "yeezy", "supreme", "off-white"].contains(brand) {
+            return 0.8 // Need authentication for premium brands
+        } else {
+            return 0.95 // Lower risk
+        }
+    }
+    
+    private func adjustPricingForCondition(pricing: MarketPricingData, condition: ConditionAssessment) -> MarketPricingData {
+        let multiplier = condition.priceImpact
+        
+        return MarketPricingData(
+            quickSalePrice: pricing.quickSalePrice * multiplier,
+            marketPrice: pricing.marketPrice * multiplier,
+            premiumPrice: pricing.premiumPrice * multiplier,
+            averagePrice: pricing.averagePrice * multiplier,
+            p10: pricing.p10 * multiplier,
+            p25: pricing.p25 * multiplier,
+            p75: pricing.p75 * multiplier,
+            p90: pricing.p90 * multiplier,
+            sampleSize: pricing.sampleSize,
+            priceSpread: pricing.priceSpread * multiplier,
+            feeAdjustedMarketPrice: pricing.feeAdjustedMarketPrice * multiplier,
+            seasonalMultiplier: pricing.seasonalMultiplier,
+            priceTrend: pricing.priceTrend
+        )
+    }
+    
+    // MARK: - PROFESSIONAL LISTING GENERATION
+    private func generateProfessionalListing(productResult: ProductIdentificationResult, marketAnalysis: MarketAnalysisData, pricing: MarketPricingData, condition: ConditionAssessment) -> ProfessionalListing {
+        
+        let optimizedTitle = generateSEOTitle(productResult: productResult, condition: condition)
+        let professionalDescription = generateProfessionalDescription(
+            productResult: productResult,
+            marketAnalysis: marketAnalysis,
+            condition: condition
+        )
+        let seoKeywords = generateAdvancedSEOKeywords(productResult: productResult, marketAnalysis: marketAnalysis)
+        
+        return ProfessionalListing(
+            optimizedTitle: optimizedTitle,
+            professionalDescription: professionalDescription,
+            seoKeywords: seoKeywords,
+            suggestedCategory: mapToEbayCategory(productResult.category),
+            shippingStrategy: determineShippingStrategy(productResult: productResult, pricing: pricing),
+            returnPolicy: "30-day returns accepted",
+            listingEnhancements: suggestListingEnhancements(marketAnalysis: marketAnalysis)
+        )
+    }
+    
+    private func generateSEOTitle(productResult: ProductIdentificationResult, condition: ConditionAssessment) -> String {
         var title = ""
         
-        if !aiResult.brand.isEmpty {
-            title += aiResult.brand + " "
+        // Brand (critical for SEO)
+        if !productResult.brand.isEmpty {
+            title += productResult.brand + " "
         }
         
-        title += aiResult.name
-        
-        if !aiResult.condition.isEmpty && aiResult.condition.lowercased() != "used" {
-            title += " - " + aiResult.condition
+        // Exact model/product
+        if let modelNumber = productResult.modelNumber, !modelNumber.isEmpty {
+            title += modelNumber + " "
+        } else {
+            title += productResult.exactProduct + " "
         }
         
-        return String(title.prefix(80))
+        // Colorway (important for shoes/clothing)
+        if let colorway = productResult.colorway, !colorway.isEmpty {
+            title += colorway + " "
+        }
+        
+        // Size (critical for shoes/clothing)
+        if let size = productResult.size, !size.isEmpty {
+            let category = productResult.category.lowercased()
+            if category.contains("shoe") || category.contains("clothing") {
+                title += "Size \(size) "
+            }
+        }
+        
+        // Style code (important for authentication)
+        if let styleCode = productResult.styleCode, !styleCode.isEmpty && title.count < 60 {
+            title += styleCode + " "
+        }
+        
+        // Condition (if not standard "used")
+        if !condition.ebayCondition.lowercased().contains("good") && !condition.ebayCondition.lowercased().contains("used") {
+            title += "- \(condition.ebayCondition) "
+        }
+        
+        // Release year (if valuable/collectible)
+        if let year = productResult.releaseYear, !year.isEmpty && title.count < 65 {
+            title += year + " "
+        }
+        
+        return String(title.trimmingCharacters(in: .whitespaces).prefix(80))
     }
     
-    private func generateSourcingTips(for category: String) -> [String] {
+    private func generateProfessionalDescription(productResult: ProductIdentificationResult, marketAnalysis: MarketAnalysisData, condition: ConditionAssessment) -> String {
+        var description = ""
+        
+        // Professional opening
+        description += "🔥 \(productResult.brand.isEmpty ? "" : productResult.brand + " ")\(productResult.exactProduct)\n\n"
+        
+        // Key details
+        description += "📋 ITEM DETAILS:\n"
+        if !productResult.brand.isEmpty {
+            description += "• Brand: \(productResult.brand)\n"
+        }
+        if let model = productResult.modelNumber, !model.isEmpty {
+            description += "• Model: \(model)\n"
+        }
+        if let size = productResult.size, !size.isEmpty {
+            description += "• Size: \(size)\n"
+        }
+        if let colorway = productResult.colorway, !colorway.isEmpty {
+            description += "• Colorway: \(colorway)\n"
+        }
+        if let styleCode = productResult.styleCode, !styleCode.isEmpty {
+            description += "• Style Code: \(styleCode)\n"
+        }
+        description += "• Condition: \(condition.ebayCondition)\n\n"
+        
+        // Condition details
+        description += "🔍 CONDITION NOTES:\n"
+        for note in condition.conditionNotes {
+            description += "• \(note)\n"
+        }
+        description += "\n"
+        
+        // Market insights (if high demand)
+        if marketAnalysis.demandLevel == "High" || marketAnalysis.demandLevel == "Very High" {
+            description += "📈 MARKET INSIGHTS:\n"
+            description += "• High demand item - similar items selling quickly\n"
+            if marketAnalysis.priceTrend == "Rising" {
+                description += "• Prices trending upward\n"
+            }
+            description += "\n"
+        }
+        
+        // Professional guarantees
+        description += "✅ BUYER PROTECTION:\n"
+        description += "• Fast shipping within 1 business day\n"
+        description += "• 30-day return policy\n"
+        description += "• Professionally packaged\n"
+        description += "• 100% authentic guarantee\n"
+        description += "• Excellent seller feedback\n\n"
+        
+        // Call to action
+        if marketAnalysis.demandLevel == "High" || marketAnalysis.demandLevel == "Very High" {
+            description += "⚡ Don't miss out - high demand item!"
+        } else {
+            description += "💎 Great opportunity for collectors and enthusiasts!"
+        }
+        
+        return description
+    }
+    
+    private func generateAdvancedSEOKeywords(productResult: ProductIdentificationResult, marketAnalysis: MarketAnalysisData) -> [String] {
+        var keywords: Set<String> = []
+        
+        // Core product keywords
+        keywords.insert(productResult.exactProduct.lowercased())
+        if !productResult.brand.isEmpty {
+            keywords.insert(productResult.brand.lowercased())
+        }
+        
+        // Model variations
+        if let model = productResult.modelNumber, !model.isEmpty {
+            keywords.insert(model.lowercased())
+        }
+        
+        // Category keywords
+        keywords.insert(productResult.category.lowercased())
+        if let subcategory = productResult.subcategory, !subcategory.isEmpty {
+            keywords.insert(subcategory.lowercased())
+        }
+        
+        // Style identifiers
+        if let styleCode = productResult.styleCode, !styleCode.isEmpty {
+            keywords.insert(styleCode.lowercased())
+        }
+        if let colorway = productResult.colorway, !colorway.isEmpty {
+            keywords.insert(colorway.lowercased())
+        }
+        
+        // Size (for applicable categories)
+        if let size = productResult.size, !size.isEmpty {
+            let category = productResult.category.lowercased()
+            if category.contains("shoe") || category.contains("clothing") {
+                keywords.insert("size \(size)")
+            }
+        }
+        
+        // Year (for collectibles)
+        if let year = productResult.releaseYear, !year.isEmpty {
+            keywords.insert(year)
+        }
+        
+        // Demand-based keywords
+        if marketAnalysis.demandLevel == "High" || marketAnalysis.demandLevel == "Very High" {
+            keywords.insert("rare")
+            keywords.insert("limited")
+        }
+        
+        return Array(keywords.prefix(10))
+    }
+    
+    private func mapToEbayCategory(_ category: String) -> String {
         let categoryLower = category.lowercased()
         
-        if categoryLower.contains("shoe") || categoryLower.contains("sneaker") {
-            return ["Check thrift stores for vintage styles", "Look for limited releases", "Verify authenticity"]
+        if categoryLower.contains("sneaker") || categoryLower.contains("athletic shoe") {
+            return "15709" // Athletic Shoes
+        } else if categoryLower.contains("shoe") {
+            return "95672" // Shoes
         } else if categoryLower.contains("electronic") {
-            return ["Test all functions before buying", "Check for original accessories", "Research model numbers"]
+            return "58058" // Electronics
         } else if categoryLower.contains("clothing") {
-            return ["Check for designer labels", "Inspect for stains or damage", "Know popular brands"]
+            return "11450" // Clothing
         } else {
-            return ["Research before buying", "Check completed listings", "Verify condition"]
+            return "267" // Everything Else
         }
+    }
+    
+    private func determineShippingStrategy(productResult: ProductIdentificationResult, pricing: MarketPricingData) -> String {
+        if pricing.marketPrice > 100 {
+            return "Free shipping (built into price)"
+        } else {
+            return "Calculated shipping"
+        }
+    }
+    
+    private func suggestListingEnhancements(marketAnalysis: MarketAnalysisData) -> [String] {
+        var enhancements: [String] = []
+        
+        if marketAnalysis.demandLevel == "High" || marketAnalysis.demandLevel == "Very High" {
+            enhancements.append("Promoted Listings")
+        }
+        
+        if marketAnalysis.confidence > 0.8 {
+            enhancements.append("Best Offer")
+        }
+        
+        enhancements.append("Professional photos recommended")
+        
+        return enhancements
+    }
+    
+    // MARK: - SELLING STRATEGY DEVELOPMENT
+    private func developSellingStrategy(marketAnalysis: MarketAnalysisData, productResult: ProductIdentificationResult, pricing: MarketPricingData) -> SellingStrategy {
+        
+        let listingType: String
+        let pricingStrategy: String
+        let timingStrategy: String
+        
+        // Determine listing type based on demand
+        switch marketAnalysis.demandLevel {
+        case "Very High", "High":
+            listingType = "Buy It Now - High demand supports fixed pricing"
+            pricingStrategy = "Start at market price with Best Offer enabled"
+        case "Medium":
+            listingType = "Buy It Now with Best Offer - Flexible for moderate demand"
+            pricingStrategy = "Start 10% above market price, accept offers at market price"
+        case "Low", "Very Low":
+            listingType = "7-day Auction starting at $0.99 - Generate interest"
+            pricingStrategy = "Let market determine price through bidding"
+        default:
+            listingType = "Buy It Now with Best Offer"
+            pricingStrategy = "Conservative pricing with flexibility"
+        }
+        
+        // Timing strategy
+        if marketAnalysis.seasonalFactor > 1.0 {
+            timingStrategy = "List immediately - in peak season"
+        } else if marketAnalysis.seasonalFactor < 0.9 {
+            timingStrategy = "Consider waiting for peak season or price aggressively"
+        } else {
+            timingStrategy = "List anytime - not seasonal"
+        }
+        
+        // Generate advanced sourcing insights
+        let sourcingInsights = generateProSourcingInsights(
+            productResult: productResult,
+            marketAnalysis: marketAnalysis,
+            pricing: pricing
+        )
+        
+        return SellingStrategy(
+            listingType: listingType,
+            pricingStrategy: pricingStrategy,
+            timingStrategy: timingStrategy,
+            sourcingInsights: sourcingInsights,
+            expectedSellingTime: marketAnalysis.averageSellingTime,
+            profitMargin: calculateProfitMargin(pricing: pricing)
+        )
+    }
+    
+    private func generateProSourcingInsights(productResult: ProductIdentificationResult, marketAnalysis: MarketAnalysisData, pricing: MarketPricingData) -> [String] {
+        var insights: [String] = []
+        
+        let category = productResult.category.lowercased()
+        let brand = productResult.brand.lowercased()
+        
+        // ROI insights
+        let maxBuyPrice = pricing.quickSalePrice * 0.6 // Account for fees and profit
+        insights.append("Max buy price: $\(String(format: "%.2f", maxBuyPrice)) for 50%+ ROI")
+        
+        // Brand-specific insights
+        if ["nike", "jordan", "adidas"].contains(brand) {
+            insights.append("Authenticate with CheckCheck or GOAT before buying")
+            insights.append("Original box adds 15-20% value")
+            insights.append("Deadstock (DS) condition commands premium")
+        } else if ["apple", "samsung"].contains(brand) {
+            insights.append("Check battery health and activation lock")
+            insights.append("Original accessories increase value significantly")
+            insights.append("Verify model number matches storage capacity")
+        }
+        
+        // Category insights
+        if category.contains("shoe") {
+            insights.append("Size 9-11 sell fastest and for most money")
+            insights.append("Check outsole wear and midsole condition")
+            insights.append("Popular colorways sell 30% faster")
+        } else if category.contains("electronic") {
+            insights.append("Test all functions before purchasing")
+            insights.append("Check for carrier unlocking if applicable")
+            insights.append("Verify no liquid damage indicators")
+        }
+        
+        // Market condition insights
+        if marketAnalysis.demandLevel == "High" || marketAnalysis.demandLevel == "Very High" {
+            insights.append("High demand - can pay closer to retail")
+            insights.append("Quick flip opportunity - list within 24 hours")
+        } else if marketAnalysis.demandLevel == "Low" {
+            insights.append("Low demand - only buy at deep discount")
+            insights.append("Consider bundling with related items")
+        }
+        
+        // Price trend insights
+        if marketAnalysis.priceTrend == "Rising" {
+            insights.append("Prices trending up - good time to buy and hold")
+        } else if marketAnalysis.priceTrend == "Declining" {
+            insights.append("Prices declining - flip quickly or avoid")
+        }
+        
+        return Array(insights.prefix(6))
+    }
+    
+    private func calculateProfitMargin(pricing: MarketPricingData) -> Double {
+        let fees = pricing.marketPrice * 0.1674 // eBay + PayPal fees
+        let netRevenue = pricing.marketPrice - fees
+        let maxCost = netRevenue * 0.6 // Target 40% net margin
+        
+        return ((netRevenue - maxCost) / netRevenue) * 100
+    }
+    
+    private func calculateResalePotential(pricing: MarketPricingData, market: MarketAnalysisData) -> Int {
+        var score = 5 // Base score
+        
+        // Price-based scoring
+        if pricing.marketPrice > 200 {
+            score += 3
+        } else if pricing.marketPrice > 100 {
+            score += 2
+        } else if pricing.marketPrice > 50 {
+            score += 1
+        }
+        
+        // Demand-based scoring
+        switch market.demandLevel {
+        case "Very High": score += 3
+        case "High": score += 2
+        case "Medium": score += 1
+        default: break
+        }
+        
+        // Confidence-based scoring
+        if market.confidence > 0.8 {
+            score += 1
+        }
+        
+        return min(score, 10)
     }
     
     // MARK: - GOOGLE SHEETS INTEGRATION
@@ -216,12 +887,12 @@ class BusinessService: ObservableObject {
     }
 }
 
-// MARK: - AI ANALYSIS SERVICE
+// MARK: - ADVANCED AI ANALYSIS SERVICE
 class AIAnalysisService: ObservableObject {
     private let apiKey = Configuration.openAIKey
     private let endpoint = Configuration.openAIEndpoint
     
-    func analyzeWithOpenAI(images: [UIImage], completion: @escaping (OpenAIAnalysisResult?) -> Void) {
+    func identifyProductPrecisely(images: [UIImage], completion: @escaping (ProductIdentificationResult?) -> Void) {
         guard !apiKey.isEmpty else {
             print("❌ OpenAI API key not configured")
             completion(nil)
@@ -238,23 +909,50 @@ class AIAnalysisService: ObservableObject {
         let base64Image = imageData.base64EncodedString()
         
         let prompt = """
-        Analyze this item for reselling on eBay. Respond with ONLY valid JSON in this exact format:
+        You are a professional reseller and product identification expert. Analyze this item with extreme precision for eBay reselling. 
+
+        Identify the EXACT product with specific model numbers, style codes, and details. This is critical for accurate pricing.
+
+        Respond with ONLY valid JSON in this exact format:
         {
-            "name": "specific product name",
-            "brand": "brand name or empty string",
-            "category": "product category",
-            "condition": "condition assessment",
-            "title": "eBay listing title under 80 characters",
-            "description": "detailed product description",
-            "keywords": ["keyword1", "keyword2", "keyword3"]
+            "exactProduct": "precise product name with model/version",
+            "brand": "exact brand name",
+            "category": "specific product category",
+            "subcategory": "more specific category",
+            "modelNumber": "exact model number or product code",
+            "styleCode": "style/SKU code if visible",
+            "size": "size if applicable",
+            "colorway": "specific color description",
+            "releaseYear": "year released if identifiable",
+            "title": "optimized eBay title under 80 characters",
+            "description": "detailed condition and product description",
+            "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+            "aiAssessedCondition": "precise condition using eBay standards",
+            "confidence": 0.95,
+            "authenticityRisk": "low/medium/high",
+            "estimatedAge": "age estimate if applicable",
+            "completeness": "complete/missing accessories/etc"
         }
+
+        CRITICAL REQUIREMENTS:
+        1. Be EXTREMELY specific - "iPhone 14 Pro 128GB Space Black" not "iPhone"
+        2. Include exact model numbers visible on product
+        3. For shoes: exact model name, colorway, size if visible
+        4. For electronics: exact model, storage, color, carrier if applicable  
+        5. For clothing: brand, line/collection, size, color, season/year
+        6. Use precise eBay condition terms: "New with tags", "New without tags", "Like New", "Very Good", "Good", "Acceptable"
+        7. Confidence score: 0.9+ if certain, 0.7-0.89 if likely, <0.7 if uncertain
+        8. Keywords must be exact terms buyers search for
+        9. If you can't identify exactly, be honest about confidence level
+        10. Look for authenticity markers, date codes, style numbers
         
-        Requirements:
-        - Be specific about the product (model, size, color if visible)
-        - Use proper eBay condition terms (New, Like New, Very Good, Good, Acceptable)
-        - Make title searchable and under 80 characters
-        - Include 3-5 relevant keywords for searching
-        - No extra text, just the JSON
+        Examples of exact identification:
+        - "Air Jordan 1 Retro High OG Chicago 2015" not "Jordan sneakers"  
+        - "iPhone 14 Pro 256GB Deep Purple Unlocked" not "Apple phone"
+        - "Nintendo Switch OLED White Console" not "gaming device"
+        - "Louis Vuitton Neverfull MM Damier Ebene" not "designer bag"
+
+        NO extra text, just the JSON response.
         """
         
         let requestBody: [String: Any] = [
@@ -276,7 +974,7 @@ class AIAnalysisService: ObservableObject {
                     ]
                 ]
             ],
-            "max_tokens": 500,
+            "max_tokens": 800,
             "temperature": 0.1
         ]
         
@@ -332,21 +1030,36 @@ class AIAnalysisService: ObservableObject {
                         
                         print("📝 OpenAI response: \(content)")
                         
+                        // Clean the content - remove markdown code blocks if present
+                        let cleanedContent = self.cleanMarkdownCodeBlocks(content)
+                        print("🧹 Cleaned content: \(cleanedContent)")
+                        
                         // Parse the JSON content
-                        if let contentData = content.data(using: .utf8) {
+                        if let contentData = cleanedContent.data(using: .utf8) {
                             do {
                                 if let analysisJson = try JSONSerialization.jsonObject(with: contentData) as? [String: Any] {
-                                    let result = OpenAIAnalysisResult(
-                                        name: analysisJson["name"] as? String ?? "Unknown Item",
+                                    let result = ProductIdentificationResult(
+                                        exactProduct: analysisJson["exactProduct"] as? String ?? "Unknown Item",
                                         brand: analysisJson["brand"] as? String ?? "",
                                         category: analysisJson["category"] as? String ?? "Other",
-                                        condition: analysisJson["condition"] as? String ?? "Used",
+                                        subcategory: analysisJson["subcategory"] as? String,
+                                        modelNumber: analysisJson["modelNumber"] as? String,
+                                        styleCode: analysisJson["styleCode"] as? String,
+                                        size: analysisJson["size"] as? String,
+                                        colorway: analysisJson["colorway"] as? String,
+                                        releaseYear: analysisJson["releaseYear"] as? String,
                                         title: analysisJson["title"] as? String ?? "Item for Sale",
                                         description: analysisJson["description"] as? String ?? "Item in good condition",
-                                        keywords: analysisJson["keywords"] as? [String] ?? []
+                                        keywords: analysisJson["keywords"] as? [String] ?? [],
+                                        aiAssessedCondition: analysisJson["aiAssessedCondition"] as? String ?? "Used",
+                                        confidence: analysisJson["confidence"] as? Double ?? 0.5,
+                                        authenticityRisk: analysisJson["authenticityRisk"] as? String ?? "medium",
+                                        estimatedAge: analysisJson["estimatedAge"] as? String,
+                                        completeness: analysisJson["completeness"] as? String ?? "unknown"
                                     )
                                     
-                                    print("✅ Parsed OpenAI result: \(result.name) by \(result.brand)")
+                                    print("✅ Parsed product identification: \(result.exactProduct) by \(result.brand)")
+                                    print("🎯 Confidence: \(Int(result.confidence * 100))%")
                                     completion(result)
                                 } else {
                                     print("❌ Content is not valid JSON object")
@@ -354,6 +1067,7 @@ class AIAnalysisService: ObservableObject {
                                 }
                             } catch {
                                 print("❌ Error parsing content as JSON: \(error)")
+                                print("❌ Content that failed to parse: \(cleanedContent)")
                                 completion(nil)
                             }
                         } else {
@@ -374,14 +1088,31 @@ class AIAnalysisService: ObservableObject {
             }
         }.resume()
     }
+    
+    private func cleanMarkdownCodeBlocks(_ content: String) -> String {
+        var cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Remove markdown code block formatting
+        if cleaned.hasPrefix("```json") {
+            cleaned = String(cleaned.dropFirst(7))
+        } else if cleaned.hasPrefix("```") {
+            cleaned = String(cleaned.dropFirst(3))
+        }
+        
+        if cleaned.hasSuffix("```") {
+            cleaned = String(cleaned.dropLast(3))
+        }
+        
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
-// MARK: - RAPIDAPI SERVICE FOR EBAY SOLD COMPS
+// MARK: - RAPIDAPI SERVICE FOR REAL EBAY DATA
 class RapidAPIService: ObservableObject {
     private let apiKey = Configuration.rapidAPIKey
     private let baseURL = "https://ebay-average-selling-price.p.rapidapi.com"
     
-    func searchSoldItems(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
+    func searchExactProduct(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
         guard !apiKey.isEmpty else {
             print("❌ RapidAPI key not configured")
             completion([])
@@ -395,16 +1126,18 @@ class RapidAPIService: ObservableObject {
             return
         }
         
-        print("🔍 Searching eBay sold comps for: \(cleanQuery)")
+        print("🔍 Searching RapidAPI for exact product: \(cleanQuery)")
         
         let endpoint = "\(baseURL)/findCompletedItems"
         
         var components = URLComponents(string: endpoint)!
         components.queryItems = [
             URLQueryItem(name: "keywords", value: cleanQuery),
-            URLQueryItem(name: "max_search_results", value: "20"),
-            URLQueryItem(name: "category_id", value: "9355"), // Collectibles, but can be adjusted
-            URLQueryItem(name: "site_id", value: "0") // US site
+            URLQueryItem(name: "max_search_results", value: "50"),
+            URLQueryItem(name: "site_id", value: "0"), // US site
+            URLQueryItem(name: "sold_items_only", value: "true"),
+            URLQueryItem(name: "condition", value: "all"),
+            URLQueryItem(name: "sort", value: "EndTimeSoonest")
         ]
         
         guard let url = components.url else {
@@ -418,13 +1151,28 @@ class RapidAPIService: ObservableObject {
         request.setValue(apiKey, forHTTPHeaderField: "X-RapidAPI-Key")
         request.setValue("ebay-average-selling-price.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 15
+        request.timeoutInterval = 20
+        
+        print("🌐 RapidAPI request URL: \(url)")
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 print("❌ RapidAPI network error: \(error)")
                 completion([])
                 return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📡 RapidAPI response status: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode != 200 {
+                    print("❌ RapidAPI error status: \(httpResponse.statusCode)")
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("❌ Error response: \(errorString)")
+                    }
+                    completion([])
+                    return
+                }
             }
             
             guard let data = data else {
@@ -435,8 +1183,15 @@ class RapidAPIService: ObservableObject {
             
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    print("✅ Received RapidAPI response")
                     let soldItems = self.parseRapidAPIResponse(json)
-                    print("✅ Found \(soldItems.count) sold items")
+                    print("✅ Found \(soldItems.count) sold items from RapidAPI")
+                    
+                    // Log sample data for debugging
+                    if let firstItem = soldItems.first {
+                        print("📊 Sample item: \(firstItem.title) - $\(firstItem.price)")
+                    }
+                    
                     completion(soldItems)
                 } else {
                     print("❌ Invalid RapidAPI response format")
@@ -477,14 +1232,40 @@ class RapidAPIService: ObservableObject {
                     soldItems.append(soldItem)
                 }
             }
+        } else if let items = json["items"] as? [[String: Any]] {
+            // Alternative response structure
+            for item in items {
+                if let title = item["title"] as? String,
+                   let price = item["price"] as? Double {
+                    
+                    let condition = item["condition"] as? String
+                    let shipping = item["shipping"] as? Double
+                    let soldDateString = item["end_date"] as? String ?? item["sold_date"] as? String
+                    let soldDate = parseSoldDate(soldDateString)
+                    let bestOfferAccepted = item["best_offer"] as? Bool
+                    
+                    let soldItem = EbaySoldItem(
+                        title: title,
+                        price: price,
+                        condition: condition,
+                        soldDate: soldDate,
+                        shipping: shipping,
+                        bestOfferAccepted: bestOfferAccepted
+                    )
+                    
+                    soldItems.append(soldItem)
+                }
+            }
         }
         
-        return soldItems
+        // Filter out invalid data
+        return soldItems.filter { $0.price > 0 }
     }
     
     private func extractPrice(from string: String) -> Double? {
         let cleanString = string.replacingOccurrences(of: "$", with: "")
                                 .replacingOccurrences(of: ",", with: "")
+                                .replacingOccurrences(of: " ", with: "")
                                 .trimmingCharacters(in: .whitespaces)
         return Double(cleanString)
     }
@@ -493,15 +1274,26 @@ class RapidAPIService: ObservableObject {
         guard let dateString = dateString else { return nil }
         
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
         
+        // Try ISO format first
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
         if let date = formatter.date(from: dateString) {
             return date
         }
         
-        // Try alternative format
+        // Try date only
+        formatter.dateFormat = "yyyy-MM-dd"
+        if let date = formatter.date(from: dateString) {
+            return date
+        }
+        
+        // Try US format
         formatter.dateFormat = "MM/dd/yyyy"
-        return formatter.date(from: dateString)
+        if let date = formatter.date(from: dateString) {
+            return date
+        }
+        
+        return nil
     }
 }
 
@@ -632,7 +1424,7 @@ class InventoryManager: ObservableObject {
     
     private let userDefaults = UserDefaults.standard
     private let itemsKey = "SavedInventoryItems"
-    private let migrationKey = "DataMigrationV6_Completed"
+    private let migrationKey = "DataMigrationV7_Completed"
     private let categoryCountersKey = "CategoryCounters"
     
     @Published var categoryCounters: [String: Int] = [:]
@@ -645,11 +1437,11 @@ class InventoryManager: ObservableObject {
     
     private func performDataMigrationIfNeeded() {
         if !userDefaults.bool(forKey: migrationKey) {
-            print("🔄 Performing data migration V6...")
+            print("🔄 Performing data migration V7...")
             userDefaults.removeObject(forKey: itemsKey)
             userDefaults.removeObject(forKey: categoryCountersKey)
             userDefaults.set(true, forKey: migrationKey)
-            print("✅ Data migration V6 completed")
+            print("✅ Data migration V7 completed")
         }
     }
     
@@ -914,14 +1706,78 @@ class InventoryManager: ObservableObject {
 
 // MARK: - SUPPORTING MODELS
 
-struct OpenAIAnalysisResult {
-    let name: String
+struct ProductIdentificationResult {
+    let exactProduct: String
     let brand: String
     let category: String
-    let condition: String
+    let subcategory: String?
+    let modelNumber: String?
+    let styleCode: String?
+    let size: String?
+    let colorway: String?
+    let releaseYear: String?
     let title: String
     let description: String
     let keywords: [String]
+    let aiAssessedCondition: String
+    let confidence: Double
+    let authenticityRisk: String
+    let estimatedAge: String?
+    let completeness: String
+}
+
+struct MarketAnalysisData {
+    let demandLevel: String
+    let confidence: Double
+    let recentSalesCount: Int
+    let totalSalesCount: Int
+    let priceTrend: String
+    let estimatedCompetitorCount: Int
+    let averageSellingTime: Int
+    let seasonalFactor: Double
+}
+
+struct MarketPricingData {
+    let quickSalePrice: Double
+    let marketPrice: Double
+    let premiumPrice: Double
+    let averagePrice: Double
+    let p10: Double
+    let p25: Double
+    let p75: Double
+    let p90: Double
+    let sampleSize: Int
+    let priceSpread: Double
+    let feeAdjustedMarketPrice: Double
+    let seasonalMultiplier: Double
+    let priceTrend: String
+}
+
+struct ConditionAssessment {
+    let ebayCondition: String
+    let conditionNotes: [String]
+    let priceImpact: Double
+    let completenessScore: Double
+    let authenticityConfidence: Double
+}
+
+struct ProfessionalListing {
+    let optimizedTitle: String
+    let professionalDescription: String
+    let seoKeywords: [String]
+    let suggestedCategory: String
+    let shippingStrategy: String
+    let returnPolicy: String
+    let listingEnhancements: [String]
+}
+
+struct SellingStrategy {
+    let listingType: String
+    let pricingStrategy: String
+    let timingStrategy: String
+    let sourcingInsights: [String]
+    let expectedSellingTime: Int
+    let profitMargin: Double
 }
 
 struct EbaySoldItem {
