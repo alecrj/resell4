@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Ultimate Consolidated Services - FAANG Level Architecture
+//  Business Services with Real API Integration
 //
 
 import SwiftUI
@@ -11,18 +11,16 @@ import Vision
 
 // MARK: - UNIFIED BUSINESS SERVICE
 class BusinessService: ObservableObject {
-    // Published properties for UI binding
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
     @Published var currentStep = 0
-    @Published var totalSteps = 8
+    @Published var totalSteps = 6
     @Published var isSyncing = false
     @Published var syncStatus = "Ready"
     @Published var lastSyncDate: Date?
     
-    // Internal services
     private let aiService = AIAnalysisService()
-    private let ebayService = EbayService()
+    private let rapidAPIService = RapidAPIService()
     private let googleSheetsService = GoogleSheetsService()
     
     init() {
@@ -46,35 +44,162 @@ class BusinessService: ObservableObject {
         DispatchQueue.main.async {
             self.isAnalyzing = true
             self.currentStep = 0
-            self.totalSteps = 8
+            self.totalSteps = 6
         }
         
-        aiService.analyzeItem(images: images) { [weak self] result in
-            DispatchQueue.main.async {
-                self?.isAnalyzing = false
-                self?.analysisProgress = "Complete"
-                completion(result)
+        // Step 1: AI Image Analysis
+        updateProgress("Analyzing images with AI...", step: 1)
+        
+        aiService.analyzeWithOpenAI(images: images) { [weak self] aiResult in
+            guard let aiResult = aiResult else {
+                DispatchQueue.main.async {
+                    self?.isAnalyzing = false
+                    completion(nil)
+                }
+                return
+            }
+            
+            // Step 2: Search eBay sold comps
+            self?.updateProgress("Searching eBay sold comps...", step: 2)
+            
+            let searchQuery = "\(aiResult.brand) \(aiResult.name)".trimmingCharacters(in: .whitespaces)
+            
+            self?.rapidAPIService.searchSoldItems(query: searchQuery) { soldItems in
+                // Step 3: Calculate pricing
+                self?.updateProgress("Calculating pricing strategy...", step: 3)
+                
+                let pricing = self?.calculatePricing(from: soldItems, basePrice: 50.0) ?? (30.0, 50.0, 75.0)
+                
+                // Step 4: Generate listing details
+                self?.updateProgress("Generating listing strategy...", step: 4)
+                
+                // Step 5: Market analysis
+                self?.updateProgress("Analyzing market conditions...", step: 5)
+                
+                // Step 6: Finalize
+                self?.updateProgress("Finalizing analysis...", step: 6)
+                
+                let finalResult = AnalysisResult(
+                    name: aiResult.name,
+                    brand: aiResult.brand,
+                    category: aiResult.category,
+                    condition: aiResult.condition,
+                    title: self?.generateEbayTitle(aiResult) ?? aiResult.title,
+                    description: aiResult.description,
+                    keywords: aiResult.keywords,
+                    suggestedPrice: pricing.1,
+                    quickPrice: pricing.0,
+                    premiumPrice: pricing.2,
+                    averagePrice: pricing.1,
+                    marketConfidence: soldItems.isEmpty ? 0.3 : 0.8,
+                    soldListingsCount: soldItems.count,
+                    competitorCount: min(soldItems.count * 3, 100),
+                    demandLevel: self?.calculateDemandLevel(soldItems.count) ?? "Medium",
+                    listingStrategy: "Buy It Now with Best Offer",
+                    sourcingTips: self?.generateSourcingTips(for: aiResult.category) ?? [],
+                    aiConfidence: 0.85,
+                    resalePotential: Int(pricing.1 / 10),
+                    priceRange: EbayPriceRange(
+                        low: pricing.0,
+                        high: pricing.2,
+                        average: pricing.1
+                    ),
+                    recentSales: soldItems.prefix(5).map { item in
+                        RecentSale(
+                            title: item.title,
+                            price: item.price,
+                            condition: item.condition ?? "Used",
+                            date: item.soldDate ?? Date().addingTimeInterval(-86400 * 7),
+                            shipping: item.shipping,
+                            bestOffer: item.bestOfferAccepted ?? false
+                        )
+                    }
+                )
+                
+                DispatchQueue.main.async {
+                    self?.isAnalyzing = false
+                    self?.analysisProgress = "Complete"
+                    completion(finalResult)
+                }
             }
         }
-        
-        // Bind AI service progress
-        aiService.$analysisProgress.receive(on: DispatchQueue.main).assign(to: &$analysisProgress)
-        aiService.$currentStep.receive(on: DispatchQueue.main).assign(to: &$currentStep)
     }
     
     func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         print("📱 Analyzing barcode: \(barcode)")
+        updateProgress("Looking up barcode...", step: 1)
         
+        // For now, fall back to regular image analysis
+        // Could integrate UPC database lookup here
+        analyzeItem(images, completion: completion)
+    }
+    
+    private func updateProgress(_ message: String, step: Int) {
         DispatchQueue.main.async {
-            self.isAnalyzing = true
-            self.analysisProgress = "Scanning barcode..."
+            self.analysisProgress = message
+            self.currentStep = step
+        }
+    }
+    
+    private func calculatePricing(from soldItems: [EbaySoldItem], basePrice: Double) -> (Double, Double, Double) {
+        guard !soldItems.isEmpty else {
+            return (basePrice * 0.7, basePrice, basePrice * 1.3)
         }
         
-        aiService.analyzeBarcodeItem(barcode, images: images) { [weak self] result in
-            DispatchQueue.main.async {
-                self?.isAnalyzing = false
-                completion(result)
-            }
+        let prices = soldItems.compactMap { $0.price }
+        guard !prices.isEmpty else {
+            return (basePrice * 0.7, basePrice, basePrice * 1.3)
+        }
+        
+        let sortedPrices = prices.sorted()
+        let count = sortedPrices.count
+        
+        let median = count % 2 == 0
+            ? (sortedPrices[count/2 - 1] + sortedPrices[count/2]) / 2
+            : sortedPrices[count/2]
+        
+        let quickPrice = median * 0.85
+        let premiumPrice = median * 1.2
+        
+        return (quickPrice, median, premiumPrice)
+    }
+    
+    private func calculateDemandLevel(_ soldCount: Int) -> String {
+        switch soldCount {
+        case 0...2: return "Low"
+        case 3...10: return "Medium"
+        case 11...25: return "High"
+        default: return "Very High"
+        }
+    }
+    
+    private func generateEbayTitle(_ aiResult: OpenAIAnalysisResult) -> String {
+        var title = ""
+        
+        if !aiResult.brand.isEmpty {
+            title += aiResult.brand + " "
+        }
+        
+        title += aiResult.name
+        
+        if !aiResult.condition.isEmpty && aiResult.condition.lowercased() != "used" {
+            title += " - " + aiResult.condition
+        }
+        
+        return String(title.prefix(80))
+    }
+    
+    private func generateSourcingTips(for category: String) -> [String] {
+        let categoryLower = category.lowercased()
+        
+        if categoryLower.contains("shoe") || categoryLower.contains("sneaker") {
+            return ["Check thrift stores for vintage styles", "Look for limited releases", "Verify authenticity"]
+        } else if categoryLower.contains("electronic") {
+            return ["Test all functions before buying", "Check for original accessories", "Research model numbers"]
+        } else if categoryLower.contains("clothing") {
+            return ["Check for designer labels", "Inspect for stains or damage", "Know popular brands"]
+        } else {
+            return ["Research before buying", "Check completed listings", "Verify condition"]
         }
     }
     
@@ -85,273 +210,14 @@ class BusinessService: ObservableObject {
     
     func syncAllItems(_ items: [InventoryItem]) {
         googleSheetsService.syncAllItems(items)
-        // Bind sync status
         googleSheetsService.$isSyncing.receive(on: DispatchQueue.main).assign(to: &$isSyncing)
         googleSheetsService.$syncStatus.receive(on: DispatchQueue.main).assign(to: &$syncStatus)
         googleSheetsService.$lastSyncDate.receive(on: DispatchQueue.main).assign(to: &$lastSyncDate)
-    }
-    
-    // MARK: - EBAY INTEGRATION
-    func createEbayListing(for item: InventoryItem, completion: @escaping (Bool, String?) -> Void) {
-        ebayService.createListing(for: item, completion: completion)
-    }
-    
-    func searchEbayComps(for query: String, completion: @escaping ([EbaySoldListing]) -> Void) {
-        ebayService.searchSoldListings(query: query, completion: completion)
     }
 }
 
 // MARK: - AI ANALYSIS SERVICE
 class AIAnalysisService: ObservableObject {
-    @Published var analysisProgress = "Ready"
-    @Published var currentStep = 0
-    @Published var totalSteps = 8
-    
-    private let openAIService = OpenAIService()
-    
-    func analyzeItem(images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
-        let analysisSteps = [
-            "Processing images...",
-            "Identifying item...",
-            "Analyzing condition...",
-            "Researching market...",
-            "Calculating pricing...",
-            "Generating description...",
-            "Creating listing strategy...",
-            "Finalizing analysis..."
-        ]
-        
-        var currentStepIndex = 0
-        
-        func nextStep() {
-            DispatchQueue.main.async {
-                if currentStepIndex < analysisSteps.count {
-                    self.analysisProgress = analysisSteps[currentStepIndex]
-                    self.currentStep = currentStepIndex + 1
-                    currentStepIndex += 1
-                }
-            }
-        }
-        
-        // Step 1: Process images
-        nextStep()
-        let processedImages = processImagesForAnalysis(images)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            // Step 2: OpenAI Analysis
-            nextStep()
-            self.openAIService.analyzeWithOpenAI(images: processedImages) { [weak self] openAIResult in
-                guard let openAIResult = openAIResult else {
-                    completion(nil)
-                    return
-                }
-                
-                // Step 3: Condition analysis
-                nextStep()
-                
-                // Step 4: Market research
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    nextStep()
-                    self?.searchEbayMarketData(for: openAIResult.name) { marketData in
-                        // Step 5: Pricing calculation
-                        nextStep()
-                        let pricingData = self?.calculatePricing(from: marketData) ?? (50.0, 75.0, 100.0)
-                        
-                        // Step 6: Description generation
-                        nextStep()
-                        
-                        // Step 7: Listing strategy
-                        nextStep()
-                        
-                        // Step 8: Finalize
-                        nextStep()
-                        
-                        // Create final result
-                        let finalResult = AnalysisResult(
-                            name: openAIResult.name,
-                            brand: openAIResult.brand,
-                            category: openAIResult.category,
-                            condition: openAIResult.condition,
-                            title: openAIResult.title,
-                            description: openAIResult.description,
-                            keywords: openAIResult.keywords,
-                            suggestedPrice: pricingData.1,
-                            quickPrice: pricingData.0,
-                            premiumPrice: pricingData.2,
-                            averagePrice: pricingData.1,
-                            marketConfidence: 0.85,
-                            soldListingsCount: marketData.count,
-                            competitorCount: min(marketData.count, 50),
-                            demandLevel: marketData.count > 10 ? "High" : "Medium",
-                            listingStrategy: "Standard auction with Buy It Now",
-                            sourcingTips: ["Check thrift stores", "Look for similar brands", "Monitor seasonal trends"],
-                            aiConfidence: 0.9,
-                            resalePotential: Int(pricingData.1 / 10),
-                            priceRange: EbayPriceRange(
-                                low: pricingData.0,
-                                high: pricingData.2,
-                                average: pricingData.1
-                            ),
-                            recentSales: marketData.prefix(5).map { listing in
-                                RecentSale(
-                                    title: listing.title,
-                                    price: listing.price,
-                                    condition: listing.condition,
-                                    date: listing.soldDate,
-                                    shipping: listing.shippingCost,
-                                    bestOffer: listing.bestOffer
-                                )
-                            }
-                        )
-                        
-                        completion(finalResult)
-                    }
-                }
-            }
-        }
-    }
-    
-    func analyzeBarcodeItem(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
-        // Enhanced barcode analysis
-        analysisProgress = "Looking up barcode..."
-        
-        // First try to get product info from barcode
-        lookupBarcodeProduct(barcode) { [weak self] barcodeResult in
-            if let productInfo = barcodeResult {
-                // Use barcode info + image analysis
-                self?.analyzeItem(images: images) { result in
-                    if var result = result {
-                        // Create enhanced result with barcode data
-                        let enhancedResult = AnalysisResult(
-                            name: productInfo.name,
-                            brand: productInfo.brand,
-                            category: result.category,
-                            condition: result.condition,
-                            title: result.title,
-                            description: result.description,
-                            keywords: result.keywords,
-                            suggestedPrice: result.suggestedPrice,
-                            quickPrice: result.quickPrice,
-                            premiumPrice: result.premiumPrice,
-                            averagePrice: result.averagePrice,
-                            marketConfidence: result.marketConfidence,
-                            soldListingsCount: result.soldListingsCount,
-                            competitorCount: result.competitorCount,
-                            demandLevel: result.demandLevel,
-                            listingStrategy: result.listingStrategy,
-                            sourcingTips: result.sourcingTips,
-                            aiConfidence: result.aiConfidence,
-                            resalePotential: result.resalePotential,
-                            priceRange: result.priceRange,
-                            recentSales: result.recentSales,
-                            exactModel: productInfo.model.isEmpty ? result.exactModel : productInfo.model,
-                            styleCode: result.styleCode,
-                            size: result.size,
-                            colorway: result.colorway,
-                            releaseYear: result.releaseYear,
-                            subcategory: result.subcategory
-                        )
-                        completion(enhancedResult)
-                    } else {
-                        completion(nil)
-                    }
-                }
-            } else {
-                // Fall back to regular image analysis
-                self?.analyzeItem(images: images, completion: completion)
-            }
-        }
-    }
-    
-    private func processImagesForAnalysis(_ images: [UIImage]) -> [UIImage] {
-        return images.compactMap { image in
-            optimizeImageForAnalysis(image)
-        }
-    }
-    
-    private func optimizeImageForAnalysis(_ image: UIImage) -> UIImage? {
-        // Resize and optimize image for analysis
-        let targetSize = CGSize(width: 800, height: 800)
-        
-        UIGraphicsBeginImageContextWithOptions(targetSize, false, 0.0)
-        image.draw(in: CGRect(origin: .zero, size: targetSize))
-        let optimizedImage = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        
-        return optimizedImage
-    }
-    
-    private func searchEbayMarketData(for itemName: String, completion: @escaping ([EbaySoldListing]) -> Void) {
-        // Mock eBay API call - replace with real implementation
-        let mockListings = [
-            EbaySoldListing(
-                title: "\(itemName) - Similar Item 1",
-                price: 45.99,
-                condition: "Used",
-                soldDate: Date().addingTimeInterval(-86400 * 3),
-                shippingCost: 8.50,
-                bestOffer: false,
-                auction: false,
-                watchers: 12
-            ),
-            EbaySoldListing(
-                title: "\(itemName) - Similar Item 2",
-                price: 62.00,
-                condition: "Like New",
-                soldDate: Date().addingTimeInterval(-86400 * 7),
-                shippingCost: 0,
-                bestOffer: true,
-                auction: false,
-                watchers: 8
-            ),
-            EbaySoldListing(
-                title: "\(itemName) - Similar Item 3",
-                price: 38.50,
-                condition: "Good",
-                soldDate: Date().addingTimeInterval(-86400 * 12),
-                shippingCost: 12.99,
-                bestOffer: false,
-                auction: true,
-                watchers: 15
-            )
-        ]
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            completion(mockListings)
-        }
-    }
-    
-    private func calculatePricing(from marketData: [EbaySoldListing]) -> (Double, Double, Double) {
-        guard !marketData.isEmpty else {
-            return (25.0, 45.0, 75.0) // Default pricing
-        }
-        
-        let prices = marketData.map { $0.price }
-        let avgPrice = prices.reduce(0, +) / Double(prices.count)
-        
-        let quickPrice = avgPrice * 0.85  // Quick sale
-        let premiumPrice = avgPrice * 1.25 // Premium price
-        
-        return (quickPrice, avgPrice, premiumPrice)
-    }
-    
-    private func lookupBarcodeProduct(_ barcode: String, completion: @escaping (BarcodeProductInfo?) -> Void) {
-        // Mock barcode lookup - replace with real API
-        let mockProduct = BarcodeProductInfo(
-            name: "Nike Air Force 1",
-            brand: "Nike",
-            model: "Air Force 1 Low '07",
-            category: "Sneakers"
-        )
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            completion(mockProduct)
-        }
-    }
-}
-
-// MARK: - OPENAI SERVICE
-class OpenAIService: ObservableObject {
     private let apiKey = Configuration.openAIKey
     private let endpoint = Configuration.openAIEndpoint
     
@@ -362,39 +228,34 @@ class OpenAIService: ObservableObject {
             return
         }
         
-        // Convert images to base64
-        let base64Images = images.compactMap { image in
-            image.jpegData(compressionQuality: 0.8)?.base64EncodedString()
-        }
-        
-        guard !base64Images.isEmpty else {
+        guard let firstImage = images.first,
+              let imageData = firstImage.jpegData(compressionQuality: 0.8) else {
+            print("❌ Could not process image")
             completion(nil)
             return
         }
         
+        let base64Image = imageData.base64EncodedString()
+        
         let prompt = """
-        Analyze this item for reselling on eBay. Provide a JSON response with:
+        Analyze this item for reselling on eBay. Respond with ONLY valid JSON in this exact format:
         {
-            "name": "Product name",
-            "brand": "Brand name",
-            "category": "Category",
-            "condition": "Condition description",
-            "title": "eBay listing title (80 chars max)",
-            "description": "Detailed description for listing",
+            "name": "specific product name",
+            "brand": "brand name or empty string",
+            "category": "product category",
+            "condition": "condition assessment",
+            "title": "eBay listing title under 80 characters",
+            "description": "detailed product description",
             "keywords": ["keyword1", "keyword2", "keyword3"]
         }
         
-        Focus on:
-        - Accurate product identification
-        - Marketable condition assessment
-        - SEO-optimized title and keywords
-        - Compelling description highlighting key features
+        Requirements:
+        - Be specific about the product (model, size, color if visible)
+        - Use proper eBay condition terms (New, Like New, Very Good, Good, Acceptable)
+        - Make title searchable and under 80 characters
+        - Include 3-5 relevant keywords for searching
+        - No extra text, just the JSON
         """
-        
-        var request = URLRequest(url: URL(string: endpoint)!)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
         let requestBody: [String: Any] = [
             "model": "gpt-4o",
@@ -409,15 +270,27 @@ class OpenAIService: ObservableObject {
                         [
                             "type": "image_url",
                             "image_url": [
-                                "url": "data:image/jpeg;base64,\(base64Images[0])"
+                                "url": "data:image/jpeg;base64,\(base64Image)"
                             ]
                         ]
                     ]
                 ]
             ],
-            "max_tokens": Configuration.openAIMaxTokens,
+            "max_tokens": 500,
             "temperature": 0.1
         ]
+        
+        guard let url = URL(string: endpoint) else {
+            print("❌ Invalid OpenAI endpoint")
+            completion(nil)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
@@ -429,7 +302,7 @@ class OpenAIService: ObservableObject {
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                print("❌ OpenAI API error: \(error)")
+                print("❌ OpenAI network error: \(error)")
                 completion(nil)
                 return
             }
@@ -441,33 +314,58 @@ class OpenAIService: ObservableObject {
             }
             
             do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let choices = json["choices"] as? [[String: Any]],
-                   let firstChoice = choices.first,
-                   let message = firstChoice["message"] as? [String: Any],
-                   let content = message["content"] as? String {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     
-                    // Parse the JSON response from GPT
-                    if let jsonData = content.data(using: .utf8),
-                       let analysisData = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+                    // Check for API errors
+                    if let error = json["error"] as? [String: Any],
+                       let message = error["message"] as? String {
+                        print("❌ OpenAI API error: \(message)")
+                        completion(nil)
+                        return
+                    }
+                    
+                    // Parse successful response
+                    if let choices = json["choices"] as? [[String: Any]],
+                       let firstChoice = choices.first,
+                       let message = firstChoice["message"] as? [String: Any],
+                       let content = message["content"] as? String {
                         
-                        let result = OpenAIAnalysisResult(
-                            name: analysisData["name"] as? String ?? "Unknown Item",
-                            brand: analysisData["brand"] as? String ?? "",
-                            category: analysisData["category"] as? String ?? "Other",
-                            condition: analysisData["condition"] as? String ?? "Used",
-                            title: analysisData["title"] as? String ?? "Item for Sale",
-                            description: analysisData["description"] as? String ?? "Item in good condition",
-                            keywords: analysisData["keywords"] as? [String] ?? []
-                        )
+                        print("📝 OpenAI response: \(content)")
                         
-                        completion(result)
+                        // Parse the JSON content
+                        if let contentData = content.data(using: .utf8) {
+                            do {
+                                if let analysisJson = try JSONSerialization.jsonObject(with: contentData) as? [String: Any] {
+                                    let result = OpenAIAnalysisResult(
+                                        name: analysisJson["name"] as? String ?? "Unknown Item",
+                                        brand: analysisJson["brand"] as? String ?? "",
+                                        category: analysisJson["category"] as? String ?? "Other",
+                                        condition: analysisJson["condition"] as? String ?? "Used",
+                                        title: analysisJson["title"] as? String ?? "Item for Sale",
+                                        description: analysisJson["description"] as? String ?? "Item in good condition",
+                                        keywords: analysisJson["keywords"] as? [String] ?? []
+                                    )
+                                    
+                                    print("✅ Parsed OpenAI result: \(result.name) by \(result.brand)")
+                                    completion(result)
+                                } else {
+                                    print("❌ Content is not valid JSON object")
+                                    completion(nil)
+                                }
+                            } catch {
+                                print("❌ Error parsing content as JSON: \(error)")
+                                completion(nil)
+                            }
+                        } else {
+                            print("❌ Could not convert content to data")
+                            completion(nil)
+                        }
                     } else {
-                        print("❌ Could not parse OpenAI response as JSON")
+                        print("❌ Unexpected OpenAI response structure")
                         completion(nil)
                     }
                 } else {
-                    print("❌ Unexpected OpenAI response format")
+                    print("❌ Response is not valid JSON")
                     completion(nil)
                 }
             } catch {
@@ -478,129 +376,132 @@ class OpenAIService: ObservableObject {
     }
 }
 
-// MARK: - EBAY SERVICE
-class EbayService: ObservableObject {
-    private let apiKey = Configuration.ebayAPIKey
-    private let findingAPIBase = Configuration.ebayFindingAPIBase
+// MARK: - RAPIDAPI SERVICE FOR EBAY SOLD COMPS
+class RapidAPIService: ObservableObject {
+    private let apiKey = Configuration.rapidAPIKey
+    private let baseURL = "https://ebay-average-selling-price.p.rapidapi.com"
     
-    func searchSoldListings(query: String, completion: @escaping ([EbaySoldListing]) -> Void) {
+    func searchSoldItems(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
         guard !apiKey.isEmpty else {
-            print("❌ eBay API key not configured")
+            print("❌ RapidAPI key not configured")
             completion([])
             return
         }
         
-        let encodedQuery = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
+        let cleanQuery = query.trimmingCharacters(in: .whitespaces)
+        guard !cleanQuery.isEmpty else {
+            print("❌ Empty search query")
+            completion([])
+            return
+        }
         
-        var components = URLComponents(string: findingAPIBase)!
+        print("🔍 Searching eBay sold comps for: \(cleanQuery)")
+        
+        let endpoint = "\(baseURL)/findCompletedItems"
+        
+        var components = URLComponents(string: endpoint)!
         components.queryItems = [
-            URLQueryItem(name: "OPERATION-NAME", value: "findCompletedItems"),
-            URLQueryItem(name: "SERVICE-VERSION", value: "1.0.0"),
-            URLQueryItem(name: "SECURITY-APPNAME", value: apiKey),
-            URLQueryItem(name: "RESPONSE-DATA-FORMAT", value: "JSON"),
-            URLQueryItem(name: "keywords", value: encodedQuery),
-            URLQueryItem(name: "itemFilter(0).name", value: "SoldItemsOnly"),
-            URLQueryItem(name: "itemFilter(0).value", value: "true"),
-            URLQueryItem(name: "itemFilter(1).name", value: "ListingType"),
-            URLQueryItem(name: "itemFilter(1).value", value: "FixedPrice"),
-            URLQueryItem(name: "sortOrder", value: "EndTimeSoonest"),
-            URLQueryItem(name: "paginationInput.entriesPerPage", value: "20")
+            URLQueryItem(name: "keywords", value: cleanQuery),
+            URLQueryItem(name: "max_search_results", value: "20"),
+            URLQueryItem(name: "category_id", value: "9355"), // Collectibles, but can be adjusted
+            URLQueryItem(name: "site_id", value: "0") // US site
         ]
         
         guard let url = components.url else {
-            print("❌ Invalid eBay API URL")
+            print("❌ Invalid RapidAPI URL")
             completion([])
             return
         }
         
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.setValue(apiKey, forHTTPHeaderField: "X-RapidAPI-Key")
+        request.setValue("ebay-average-selling-price.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                print("❌ eBay API error: \(error)")
+                print("❌ RapidAPI network error: \(error)")
                 completion([])
                 return
             }
             
             guard let data = data else {
-                print("❌ No data received from eBay")
+                print("❌ No data received from RapidAPI")
                 completion([])
                 return
             }
             
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    let listings = self.parseEbayResponse(json)
-                    DispatchQueue.main.async {
-                        completion(listings)
-                    }
+                    let soldItems = self.parseRapidAPIResponse(json)
+                    print("✅ Found \(soldItems.count) sold items")
+                    completion(soldItems)
                 } else {
-                    print("❌ Invalid eBay response format")
+                    print("❌ Invalid RapidAPI response format")
                     completion([])
                 }
             } catch {
-                print("❌ Error parsing eBay response: \(error)")
+                print("❌ Error parsing RapidAPI response: \(error)")
                 completion([])
             }
         }.resume()
     }
     
-    func createListing(for item: InventoryItem, completion: @escaping (Bool, String?) -> Void) {
-        // Mock eBay listing creation - implement with eBay Trading API
-        print("🏷️ Creating eBay listing for: \(item.name)")
+    private func parseRapidAPIResponse(_ json: [String: Any]) -> [EbaySoldItem] {
+        var soldItems: [EbaySoldItem] = []
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            // Simulate success
-            completion(true, "https://ebay.com/itm/123456789")
-        }
-    }
-    
-    private func parseEbayResponse(_ json: [String: Any]) -> [EbaySoldListing] {
-        // Parse eBay Finding API JSON response
-        var listings: [EbaySoldListing] = []
-        
-        if let findCompletedItemsResponse = json["findCompletedItemsResponse"] as? [[String: Any]],
-           let response = findCompletedItemsResponse.first,
-           let searchResult = response["searchResult"] as? [[String: Any]],
-           let result = searchResult.first,
-           let items = result["item"] as? [[String: Any]] {
-            
-            for itemData in items {
-                if let title = itemData["title"] as? [String],
-                   let sellingStatus = itemData["sellingStatus"] as? [[String: Any]],
-                   let status = sellingStatus.first,
-                   let currentPrice = status["currentPrice"] as? [[String: Any]],
-                   let price = currentPrice.first,
-                   let priceValue = price["__value__"] as? String,
-                   let priceDouble = Double(priceValue),
-                   let condition = itemData["condition"] as? [[String: Any]],
-                   let conditionData = condition.first,
-                   let conditionName = conditionData["conditionDisplayName"] as? [String],
-                   let endTime = itemData["listingInfo"] as? [[String: Any]],
-                   let listingInfo = endTime.first,
-                   let endTimeString = listingInfo["endTime"] as? [String] {
+        // Parse based on RapidAPI eBay Average Selling Price response structure
+        if let results = json["results"] as? [[String: Any]] {
+            for result in results {
+                if let title = result["title"] as? String,
+                   let priceString = result["price"] as? String,
+                   let price = extractPrice(from: priceString) {
                     
-                    let dateFormatter = ISO8601DateFormatter()
-                    let soldDate = dateFormatter.date(from: endTimeString.first ?? "") ?? Date()
+                    let condition = result["condition"] as? String
+                    let shipping = extractPrice(from: result["shipping"] as? String ?? "")
+                    let soldDateString = result["sold_date"] as? String
+                    let soldDate = parseSoldDate(soldDateString)
+                    let bestOfferAccepted = result["best_offer_accepted"] as? Bool
                     
-                    let listing = EbaySoldListing(
-                        title: title.first ?? "",
-                        price: priceDouble,
-                        condition: conditionName.first ?? "",
+                    let soldItem = EbaySoldItem(
+                        title: title,
+                        price: price,
+                        condition: condition,
                         soldDate: soldDate,
-                        shippingCost: nil,
-                        bestOffer: false,
-                        auction: false,
-                        watchers: nil
+                        shipping: shipping,
+                        bestOfferAccepted: bestOfferAccepted
                     )
                     
-                    listings.append(listing)
+                    soldItems.append(soldItem)
                 }
             }
         }
         
-        return listings
+        return soldItems
+    }
+    
+    private func extractPrice(from string: String) -> Double? {
+        let cleanString = string.replacingOccurrences(of: "$", with: "")
+                                .replacingOccurrences(of: ",", with: "")
+                                .trimmingCharacters(in: .whitespaces)
+        return Double(cleanString)
+    }
+    
+    private func parseSoldDate(_ dateString: String?) -> Date? {
+        guard let dateString = dateString else { return nil }
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        
+        if let date = formatter.date(from: dateString) {
+            return date
+        }
+        
+        // Try alternative format
+        formatter.dateFormat = "MM/dd/yyyy"
+        return formatter.date(from: dateString)
     }
 }
 
@@ -646,10 +547,6 @@ class GoogleSheetsService: ObservableObject {
                 }
             }
         }
-    }
-    
-    func syncSingleItem(_ item: InventoryItem) {
-        syncAllItems([item])
     }
     
     private func convertItemsToCSV(_ items: [InventoryItem]) -> String {
@@ -700,6 +597,7 @@ class GoogleSheetsService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 30
         
         let requestBody = [
             "action": "updateData",
@@ -722,6 +620,7 @@ class GoogleSheetsService: ObservableObject {
                 return
             }
             
+            print("✅ Google Sheets sync completed")
             completion(true)
         }.resume()
     }
@@ -733,7 +632,7 @@ class InventoryManager: ObservableObject {
     
     private let userDefaults = UserDefaults.standard
     private let itemsKey = "SavedInventoryItems"
-    private let migrationKey = "DataMigrationV5_Completed"
+    private let migrationKey = "DataMigrationV6_Completed"
     private let categoryCountersKey = "CategoryCounters"
     
     @Published var categoryCounters: [String: Int] = [:]
@@ -744,22 +643,16 @@ class InventoryManager: ObservableObject {
         loadItems()
     }
     
-    // MARK: - Data Migration
     private func performDataMigrationIfNeeded() {
         if !userDefaults.bool(forKey: migrationKey) {
-            print("🔄 Performing data migration V5...")
-            
-            // Clear old data
+            print("🔄 Performing data migration V6...")
             userDefaults.removeObject(forKey: itemsKey)
             userDefaults.removeObject(forKey: categoryCountersKey)
-            
-            // Mark migration complete
             userDefaults.set(true, forKey: migrationKey)
-            print("✅ Data migration V5 completed")
+            print("✅ Data migration V6 completed")
         }
     }
     
-    // MARK: - Inventory Code Generation
     func generateInventoryCode(for category: String) -> String {
         let inventoryCategory = mapCategoryToInventoryCategory(category)
         let letter = inventoryCategory.inventoryLetter
@@ -807,7 +700,6 @@ class InventoryManager: ObservableObject {
         }
     }
     
-    // MARK: - CRUD Operations
     func addItem(_ item: InventoryItem) -> InventoryItem {
         var updatedItem = item
         
@@ -836,7 +728,6 @@ class InventoryManager: ObservableObject {
         print("🗑️ Deleted item: \(item.name)")
     }
     
-    // MARK: - Data Persistence
     private func saveItems() {
         do {
             let data = try JSONEncoder().encode(items)
@@ -903,7 +794,6 @@ class InventoryManager: ObservableObject {
         }
     }
     
-    // MARK: - Computed Properties
     var nextItemNumber: Int {
         (items.map { $0.itemNumber }.max() ?? 0) + 1
     }
@@ -942,7 +832,6 @@ class InventoryManager: ObservableObject {
         items.sorted { $0.dateAdded > $1.dateAdded }
     }
     
-    // MARK: - Analytics
     func getCategoryBreakdown() -> [String: Int] {
         let categories = Dictionary(grouping: items, by: { $0.category })
         return categories.mapValues { $0.count }
@@ -1035,9 +924,11 @@ struct OpenAIAnalysisResult {
     let keywords: [String]
 }
 
-struct BarcodeProductInfo {
-    let name: String
-    let brand: String
-    let model: String
-    let category: String
+struct EbaySoldItem {
+    let title: String
+    let price: Double
+    let condition: String?
+    let soldDate: Date?
+    let shipping: Double?
+    let bestOfferAccepted: Bool?
 }
