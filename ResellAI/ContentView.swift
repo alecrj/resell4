@@ -28,9 +28,23 @@ struct ContentView: View {
             businessService.initialize()
         }
         .onOpenURL { url in
+            print("📱 App received URL: \(url)")
+            print("📱 Full URL string: \(url.absoluteString)")
+            print("📱 Scheme: \(url.scheme ?? "nil")")
+            print("📱 Host: \(url.host ?? "nil")")
+            print("📱 Path: \(url.path)")
+            print("📱 Query: \(url.query ?? "nil")")
+            
             // Handle eBay OAuth callback
-            if url.scheme == "resellai" && url.host == "auth" && url.path == "/ebay" {
-                businessService.handleEbayAuthCallback(url: url)
+            if url.scheme == "resellai" && url.host == "auth" {
+                if url.path == "/ebay" || url.path.contains("ebay") {
+                    print("✅ Processing eBay OAuth callback")
+                    businessService.handleEbayAuthCallback(url: url)
+                } else {
+                    print("⚠️ Unknown auth path: \(url.path)")
+                }
+            } else {
+                print("⚠️ Unknown URL scheme: \(url.scheme ?? "nil") host: \(url.host ?? "nil")")
             }
         }
     }
@@ -264,6 +278,7 @@ struct AnalysisView: View {
     }
     
     private func authenticateEbay() {
+        print("🔐 User requested eBay authentication")
         businessService.authenticateEbay { success in
             DispatchQueue.main.async {
                 if success {
