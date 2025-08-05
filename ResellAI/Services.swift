@@ -976,7 +976,7 @@ class AIAnalysisService: ObservableObject {
     }
 }
 
-// MARK: - EBAY SERVICE (ENHANCED DEBUG VERSION)
+// MARK: - EBAY SERVICE (FIXED - SINGLE AUTHENTICATE METHOD)
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -992,11 +992,11 @@ class EbayService: NSObject, ObservableObject {
         loadSavedTokens()
     }
     
-    // MARK: - WORKING EBAY OAUTH (TESTED URL)
+    // MARK: - WORKING EBAY OAUTH (SINGLE METHOD)
     func authenticate(completion: @escaping (Bool) -> Void) {
         print("🔐 Starting eBay OAuth authentication...")
         
-        // Use the EXACT URL format that works manually
+        // Use the EXACT working URL format from your test
         let authURL = buildWorkingEbayOAuthURL()
         print("🌐 eBay OAuth URL: \(authURL)")
         
@@ -1083,10 +1083,10 @@ class EbayService: NSObject, ObservableObject {
     }
     
     private func buildWorkingEbayOAuthURL() -> String {
-        // Use the EXACT same format that works manually
+        // Use the EXACT working URL format from your test
         let baseURL = "https://auth.ebay.com/oauth2/authorize"
         let clientId = Configuration.ebayAPIKey
-        let redirectUri = Configuration.ebayRuName  // This is the key!
+        let redirectUri = "Alec_Rodriguez-AlecRodr-resell-yinuaueco" // Your RuName from working URL
         
         let scopes = [
             "https://api.ebay.com/oauth/api_scope/sell.inventory",
@@ -1108,13 +1108,177 @@ class EbayService: NSObject, ObservableObject {
         
         let finalURL = components.url?.absoluteString ?? ""
         
-        print("🔗 Built OAuth URL:")
+        print("🔗 OAuth URL Components:")
         print("  - Client ID: \(clientId)")
         print("  - Redirect URI: \(redirectUri)")
         print("  - Scopes: \(scopes)")
         print("  - State: \(state)")
         
         return finalURL
+    }
+    
+    func handleAuthCallback(url: URL) {
+        print("🔗 Processing eBay OAuth callback: \(url)")
+        print("🔗 Full URL: \(url.absoluteString)")
+        
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            print("❌ Could not parse URL components")
+            DispatchQueue.main.async {
+                self.authStatus = "Invalid callback URL"
+            }
+            return
+        }
+        
+        print("🔍 URL components:")
+        print("  - Scheme: \(components.scheme ?? "nil")")
+        print("  - Host: \(components.host ?? "nil")")
+        print("  - Path: \(components.path)")
+        print("  - Query: \(components.query ?? "nil")")
+        
+        let queryItems = components.queryItems ?? []
+        print("📊 Query items: \(queryItems.map { "\($0.name)=\($0.value ?? "nil")" })")
+        
+        if let code = queryItems.first(where: { $0.name == "code" })?.value {
+            print("✅ Received eBay authorization code: \(String(code.prefix(10)))...")
+            DispatchQueue.main.async {
+                self.authStatus = "Exchanging code for access token..."
+            }
+            exchangeCodeForToken(code: code)
+            
+        } else if let error = queryItems.first(where: { $0.name == "error" })?.value {
+            let errorDescription = queryItems.first(where: { $0.name == "error_description" })?.value
+            print("❌ eBay OAuth error: \(error)")
+            
+            if let description = errorDescription {
+                print("❌ Error description: \(description)")
+            }
+            
+            DispatchQueue.main.async {
+                if error == "declined" {
+                    self.authStatus = "User declined eBay connection"
+                } else {
+                    self.authStatus = "eBay error: \(error)"
+                }
+            }
+            
+        } else {
+            print("❌ No authorization code or error in callback")
+            print("📊 This might be a direct app open - checking for other patterns...")
+            
+            // Check if this is just opening the app without OAuth data
+            if queryItems.isEmpty && components.path.contains("ebay") {
+                DispatchQueue.main.async {
+                    self.authStatus = "Waiting for eBay response..."
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.authStatus = "No authorization data received"
+                }
+            }
+        }
+    }
+    
+    private func exchangeCodeForToken(code: String) {
+        print("🔄 Exchanging authorization code for eBay access token...")
+        
+        let tokenURL = "https://api.ebay.com/identity/v1/oauth2/token"
+        
+        guard let url = URL(string: tokenURL) else {
+            print("❌ Invalid eBay token URL")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        
+        let credentials = "\(Configuration.ebayAPIKey):\(Configuration.ebayClientSecret)"
+        let credentialsData = credentials.data(using: .utf8)!
+        let base64Credentials = credentialsData.base64EncodedString()
+        request.setValue("Basic \(base64Credentials)", forHTTPHeaderField: "Authorization")
+        
+        let body = [
+            "grant_type=authorization_code",
+            "code=\(code)",
+            "redirect_uri=Alec_Rodriguez-AlecRodr-resell-yinuaueco"  // Use RuName
+        ].joined(separator: "&")
+        
+        request.httpBody = body.data(using: .utf8)
+        request.timeoutInterval = 30
+        
+        print("📡 Making eBay token exchange request...")
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            
+            if let error = error {
+                print("❌ eBay token exchange network error: \(error)")
+                DispatchQueue.main.async {
+                    self?.authStatus = "Network error during token exchange"
+                }
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📡 eBay token exchange status: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode != 200 {
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("❌ eBay token error response: \(errorString)")
+                    }
+                    DispatchQueue.main.async {
+                        self?.authStatus = "Token exchange failed (\(httpResponse.statusCode))"
+                    }
+                    return
+                }
+            }
+            
+            guard let data = data else {
+                print("❌ No data received from eBay token exchange")
+                DispatchQueue.main.async {
+                    self?.authStatus = "No token data received"
+                }
+                return
+            }
+            
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    print("📝 eBay token response received")
+                    
+                    if let accessToken = json["access_token"] as? String {
+                        print("✅ Successfully received eBay access token!")
+                        
+                        self?.accessToken = accessToken
+                        self?.refreshToken = json["refresh_token"] as? String
+                        self?.saveTokens()
+                        
+                        DispatchQueue.main.async {
+                            self?.isAuthenticated = true
+                            self?.authStatus = "Connected to eBay"
+                        }
+                        
+                        print("🎉 eBay OAuth authentication complete!")
+                        
+                    } else {
+                        print("❌ No access token in eBay response")
+                        print("📊 Response keys: \(json.keys)")
+                        DispatchQueue.main.async {
+                            self?.authStatus = "Invalid token response"
+                        }
+                    }
+                } else {
+                    print("❌ Invalid JSON in token response")
+                    DispatchQueue.main.async {
+                        self?.authStatus = "Invalid response format"
+                    }
+                }
+            } catch {
+                print("❌ Error parsing eBay token response: \(error)")
+                DispatchQueue.main.async {
+                    self?.authStatus = "Response parsing failed"
+                }
+            }
+            
+        }.resume()
     }
     
     // MARK: - RAPIDAPI IMPLEMENTATION
@@ -1355,344 +1519,6 @@ class EbayService: NSObject, ObservableObject {
         }
         
         return nil
-    }
-    
-    // MARK: - FIXED EBAY OAUTH FLOW
-    func authenticate(completion: @escaping (Bool) -> Void) {
-        print("🔐 Starting eBay OAuth authentication...")
-        print("📊 Debug Info:")
-        print("  - App ID: \(Configuration.ebayAPIKey)")
-        print("  - Environment: \(Configuration.ebayEnvironment)")
-        print("  - RuName: \(Configuration.ebayRuName)")
-        
-        // Build the OAuth URL
-        let authURL = buildDebugEbayAuthURL()
-        print("🌐 Full OAuth URL: \(authURL)")
-        
-        guard let url = URL(string: authURL) else {
-            print("❌ Invalid eBay auth URL")
-            DispatchQueue.main.async {
-                self.authStatus = "Invalid auth URL"
-                completion(false)
-            }
-            return
-        }
-        
-        // Test URL validity first
-        print("🧪 Testing OAuth URL validity...")
-        testEbayURLValidity(url: url) { [weak self] isValid in
-            if !isValid {
-                print("❌ eBay OAuth URL is invalid - check your eBay developer console configuration")
-                DispatchQueue.main.async {
-                    self?.authStatus = "eBay configuration error"
-                    completion(false)
-                }
-                return
-            }
-            
-            print("✅ OAuth URL appears valid, starting authentication session...")
-            self?.startAuthenticationSession(url: url, completion: completion)
-        }
-    }
-    
-    private func buildDebugEbayAuthURL() -> String {
-        let baseURL = "https://auth.ebay.com/oauth2/authorize"
-        let clientId = Configuration.ebayAPIKey
-        let redirectUri = "https://resellaiapp.com/success.html"
-        
-        let scopes = [
-            "https://api.ebay.com/oauth/api_scope/sell.inventory",
-            "https://api.ebay.com/oauth/api_scope/sell.account",
-            "https://api.ebay.com/oauth/api_scope/sell.fulfillment"
-        ].joined(separator: " ")
-        
-        // Manual URL building for better control
-        let params = [
-            "client_id": clientId,
-            "response_type": "code",
-            "redirect_uri": redirectUri,
-            "scope": scopes,
-            "state": UUID().uuidString
-        ]
-        
-        var urlComponents = URLComponents(string: baseURL)!
-        urlComponents.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
-        
-        let finalURL = urlComponents.url?.absoluteString ?? ""
-        
-        print("🔗 OAuth URL Components:")
-        print("  - Base: \(baseURL)")
-        print("  - Client ID: \(clientId)")
-        print("  - Redirect URI: \(redirectUri)")
-        print("  - Scopes: \(scopes)")
-        
-        return finalURL
-    }
-    
-    private func testEbayURLValidity(url: URL, completion: @escaping (Bool) -> Void) {
-        var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
-        request.timeoutInterval = 10
-        
-        URLSession.shared.dataTask(with: request) { _, response, error in
-            if let error = error {
-                print("❌ URL test failed: \(error)")
-                completion(false)
-                return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📡 URL test response: \(httpResponse.statusCode)")
-                // 200 = OK, 302 = Redirect (both are good for OAuth)
-                completion(httpResponse.statusCode == 200 || httpResponse.statusCode == 302)
-            } else {
-                completion(false)
-            }
-        }.resume()
-    }
-    
-    private func startAuthenticationSession(url: URL, completion: @escaping (Bool) -> Void) {
-        DispatchQueue.main.async {
-            self.authStatus = "Opening eBay authentication..."
-            
-            // Clean up any existing session
-            self.authSession?.cancel()
-            
-            print("🚀 Creating ASWebAuthenticationSession...")
-            print("  - URL: \(url)")
-            print("  - Callback scheme: resellai")
-            
-            self.authSession = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: "resellai"
-            ) { [weak self] callbackURL, error in
-                
-                print("📱 ASWebAuthenticationSession completed")
-                
-                if let error = error {
-                    print("❌ OAuth Session Error: \(error)")
-                    print("❌ Error localized description: \(error.localizedDescription)")
-                    
-                    if let authError = error as? ASWebAuthenticationSessionError {
-                        print("❌ ASWebAuthenticationSessionError details:")
-                        print("  - Code: \(authError.code.rawValue)")
-                        print("  - Description: \(authError.localizedDescription)")
-                        
-                        switch authError.code {
-                        case .canceledLogin:
-                            print("❌ User canceled login OR session failed to start properly")
-                            print("💡 This often means the OAuth URL is rejected by eBay")
-                            self?.authStatus = "Authentication was canceled"
-                        case .presentationContextNotProvided:
-                            print("❌ Presentation context not provided")
-                            self?.authStatus = "App configuration error"
-                        case .presentationContextInvalid:
-                            print("❌ Invalid presentation context")
-                            self?.authStatus = "App configuration error"
-                        @unknown default:
-                            print("❌ Unknown authentication error")
-                            self?.authStatus = "Unknown authentication error"
-                        }
-                    }
-                    
-                    completion(false)
-                    return
-                }
-                
-                guard let callbackURL = callbackURL else {
-                    print("❌ No callback URL received")
-                    self?.authStatus = "No response from eBay"
-                    completion(false)
-                    return
-                }
-                
-                print("✅ OAuth callback received: \(callbackURL)")
-                self?.handleAuthCallback(url: callbackURL)
-                completion(true)
-            }
-            
-            // Critical: Set presentation context provider
-            self.authSession?.presentationContextProvider = self
-            
-            // Configure session
-            self.authSession?.prefersEphemeralWebBrowserSession = false
-            
-            print("🎬 Starting authentication session...")
-            let sessionStarted = self.authSession?.start() ?? false
-            
-            if sessionStarted {
-                print("✅ ASWebAuthenticationSession started successfully")
-                print("📱 Web view should appear now...")
-            } else {
-                print("❌ Failed to start ASWebAuthenticationSession")
-                self.authStatus = "Failed to start authentication"
-                completion(false)
-            }
-        }
-    }
-    
-    func handleAuthCallback(url: URL) {
-        print("🔗 Processing eBay OAuth callback: \(url)")
-        print("🔗 Full URL: \(url.absoluteString)")
-        
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            print("❌ Could not parse URL components")
-            DispatchQueue.main.async {
-                self.authStatus = "Invalid callback URL"
-            }
-            return
-        }
-        
-        print("🔍 URL components:")
-        print("  - Scheme: \(components.scheme ?? "nil")")
-        print("  - Host: \(components.host ?? "nil")")
-        print("  - Path: \(components.path)")
-        print("  - Query: \(components.query ?? "nil")")
-        
-        let queryItems = components.queryItems ?? []
-        print("📊 Query items: \(queryItems.map { "\($0.name)=\($0.value ?? "nil")" })")
-        
-        if let code = queryItems.first(where: { $0.name == "code" })?.value {
-            print("✅ Received eBay authorization code: \(String(code.prefix(10)))...")
-            DispatchQueue.main.async {
-                self.authStatus = "Exchanging code for access token..."
-            }
-            exchangeCodeForToken(code: code)
-            
-        } else if let error = queryItems.first(where: { $0.name == "error" })?.value {
-            let errorDescription = queryItems.first(where: { $0.name == "error_description" })?.value
-            print("❌ eBay OAuth error: \(error)")
-            
-            if let description = errorDescription {
-                print("❌ Error description: \(description)")
-            }
-            
-            DispatchQueue.main.async {
-                if error == "declined" {
-                    self.authStatus = "User declined eBay connection"
-                } else {
-                    self.authStatus = "eBay error: \(error)"
-                }
-            }
-            
-        } else {
-            print("❌ No authorization code or error in callback")
-            print("📊 This might be a direct app open - checking for other patterns...")
-            
-            // Check if this is just opening the app without OAuth data
-            if queryItems.isEmpty && components.path.contains("ebay") {
-                DispatchQueue.main.async {
-                    self.authStatus = "Waiting for eBay response..."
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.authStatus = "No authorization data received"
-                }
-            }
-        }
-    }
-    
-    private func exchangeCodeForToken(code: String) {
-        print("🔄 Exchanging authorization code for eBay access token...")
-        
-        let tokenURL = "https://api.ebay.com/identity/v1/oauth2/token"
-        
-        guard let url = URL(string: tokenURL) else {
-            print("❌ Invalid eBay token URL")
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        
-        let credentials = "\(Configuration.ebayAPIKey):\(Configuration.ebayClientSecret)"
-        let credentialsData = credentials.data(using: .utf8)!
-        let base64Credentials = credentialsData.base64EncodedString()
-        request.setValue("Basic \(base64Credentials)", forHTTPHeaderField: "Authorization")
-        
-        let body = [
-            "grant_type=authorization_code",
-            "code=\(code)",
-            "redirect_uri=\(Configuration.ebayRuName)"  // Use RuName, not website URL
-        ].joined(separator: "&")
-        
-        request.httpBody = body.data(using: .utf8)
-        request.timeoutInterval = 30
-        
-        print("📡 Making eBay token exchange request...")
-        
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            
-            if let error = error {
-                print("❌ eBay token exchange network error: \(error)")
-                DispatchQueue.main.async {
-                    self?.authStatus = "Network error during token exchange"
-                }
-                return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                print("📡 eBay token exchange status: \(httpResponse.statusCode)")
-                
-                if httpResponse.statusCode != 200 {
-                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
-                        print("❌ eBay token error response: \(errorString)")
-                    }
-                    DispatchQueue.main.async {
-                        self?.authStatus = "Token exchange failed (\(httpResponse.statusCode))"
-                    }
-                    return
-                }
-            }
-            
-            guard let data = data else {
-                print("❌ No data received from eBay token exchange")
-                DispatchQueue.main.async {
-                    self?.authStatus = "No token data received"
-                }
-                return
-            }
-            
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("📝 eBay token response received")
-                    
-                    if let accessToken = json["access_token"] as? String {
-                        print("✅ Successfully received eBay access token!")
-                        
-                        self?.accessToken = accessToken
-                        self?.refreshToken = json["refresh_token"] as? String
-                        self?.saveTokens()
-                        
-                        DispatchQueue.main.async {
-                            self?.isAuthenticated = true
-                            self?.authStatus = "Connected to eBay"
-                        }
-                        
-                        print("🎉 eBay OAuth authentication complete!")
-                        
-                    } else {
-                        print("❌ No access token in eBay response")
-                        print("📊 Response keys: \(json.keys)")
-                        DispatchQueue.main.async {
-                            self?.authStatus = "Invalid token response"
-                        }
-                    }
-                } else {
-                    print("❌ Invalid JSON in token response")
-                    DispatchQueue.main.async {
-                        self?.authStatus = "Invalid response format"
-                    }
-                }
-            } catch {
-                print("❌ Error parsing eBay token response: \(error)")
-                DispatchQueue.main.async {
-                    self?.authStatus = "Response parsing failed"
-                }
-            }
-            
-        }.resume()
     }
     
     // MARK: - EBAY LISTING CREATION
