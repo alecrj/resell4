@@ -10,7 +10,7 @@ import Foundation
 import Vision
 import AuthenticationServices
 
-// MARK: - MAIN BUSINESS SERVICE
+// MARK: - MAIN BUSINESS SERVICE (Updated with Firebase)
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -24,23 +24,40 @@ class BusinessService: ObservableObject {
     let ebayService = EbayService() // Make public for debug access
     private let googleSheetsService = GoogleSheetsService()
     
+    // Firebase integration
+    @Published var firebaseService: FirebaseService?
+    
     init() {
         print("🚀 Complete Reselling Automation initialized")
     }
     
-    func initialize() {
+    func initialize(with firebaseService: FirebaseService? = nil) {
         Configuration.validateConfiguration()
+        self.firebaseService = firebaseService
         authenticateGoogleSheets()
     }
     
-    // MARK: - COMPLETE ITEM ANALYSIS WITH REAL EBAY DATA
+    // MARK: - COMPLETE ITEM ANALYSIS WITH USAGE TRACKING
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             completion(nil)
             return
         }
         
+        // Check Firebase usage limits
+        if let firebase = firebaseService, !firebase.canAnalyze {
+            print("⚠️ Monthly limit reached - blocking analysis")
+            completion(nil)
+            return
+        }
+        
         print("🔍 Starting complete reselling analysis with \(images.count) images")
+        
+        // Track usage in Firebase
+        firebaseService?.trackUsage(action: "analysis", metadata: [
+            "image_count": "\(images.count)",
+            "timestamp": ISO8601DateFormatter().string(from: Date())
+        ])
         
         DispatchQueue.main.async {
             self.isAnalyzing = true
@@ -1111,10 +1128,29 @@ class EbayService: NSObject, ObservableObject {
         let clientId = Configuration.ebayAPIKey
         let redirectUri = Configuration.ebayRuName // Must use RuName, not HTTPS URL
         
+        // Use complete scopes from eBay Developer Console
         let scopes = [
+            "https://api.ebay.com/oauth/api_scope",
+            "https://api.ebay.com/oauth/api_scope/sell.marketing.readonly",
+            "https://api.ebay.com/oauth/api_scope/sell.marketing",
+            "https://api.ebay.com/oauth/api_scope/sell.inventory.readonly",
             "https://api.ebay.com/oauth/api_scope/sell.inventory",
+            "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
             "https://api.ebay.com/oauth/api_scope/sell.account",
-            "https://api.ebay.com/oauth/api_scope/sell.fulfillment"
+            "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
+            "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
+            "https://api.ebay.com/oauth/api_scope/sell.analytics.readonly",
+            "https://api.ebay.com/oauth/api_scope/sell.finances",
+            "https://api.ebay.com/oauth/api_scope/sell.payment.dispute",
+            "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+            "https://api.ebay.com/oauth/api_scope/sell.reputation",
+            "https://api.ebay.com/oauth/api_scope/sell.reputation.readonly",
+            "https://api.ebay.com/oauth/api_scope/commerce.notification.subscription",
+            "https://api.ebay.com/oauth/api_scope/commerce.notification.subscription.readonly",
+            "https://api.ebay.com/oauth/api_scope/sell.stores",
+            "https://api.ebay.com/oauth/api_scope/sell.stores.readonly",
+            "https://api.ebay.com/oauth/scope/sell.edelivery",
+            "https://api.ebay.com/oauth/api_scope/commerce.vero"
         ].joined(separator: " ")
         
         let state = UUID().uuidString
@@ -1134,7 +1170,7 @@ class EbayService: NSObject, ObservableObject {
         print("🔗 OAuth URL Components:")
         print("  - Client ID: \(clientId)")
         print("  - Redirect URI: \(redirectUri)")
-        print("  - Scopes: \(scopes)")
+        print("  - Scopes: \(scopes.components(separatedBy: " ").count) scopes")
         print("  - State: \(state)")
         
         return finalURL
