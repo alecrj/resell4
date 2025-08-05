@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Complete Reselling Automation - Fixed RapidAPI + Real eBay OAuth
+//  Complete Reselling Automation - Fixed eBay OAuth with RuName
 //
 
 import SwiftUI
@@ -976,7 +976,7 @@ class AIAnalysisService: ObservableObject {
     }
 }
 
-// MARK: - EBAY SERVICE (FIXED RAPIDAPI + REAL OAUTH)
+// MARK: - EBAY SERVICE (FIXED OAUTH WITH RUNAME)
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -986,6 +986,9 @@ class EbayService: NSObject, ObservableObject {
     private var authSession: ASWebAuthenticationSession?
     
     private let rapidAPIKey = Configuration.rapidAPIKey
+    
+    // Fixed eBay OAuth with RuName from developer console
+    private let ebayRuName = "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
     
     override init() {
         super.init()
@@ -1241,12 +1244,12 @@ class EbayService: NSObject, ObservableObject {
         return nil
     }
     
-    // MARK: - REAL EBAY OAUTH AUTHENTICATION
+    // MARK: - FIXED EBAY OAUTH WITH RUNAME
     func authenticate(completion: @escaping (Bool) -> Void) {
-        print("🔐 Starting eBay OAuth authentication...")
+        print("🔐 Starting eBay OAuth authentication with RuName...")
         
-        // Check if we need production vs sandbox
-        let authURL = buildEbayAuthURL()
+        // Use OAuth endpoint with RuName from eBay developer console
+        let authURL = buildEbayAuthURLWithRuName()
         
         guard let url = URL(string: authURL) else {
             print("❌ Invalid eBay auth URL")
@@ -1324,11 +1327,10 @@ class EbayService: NSObject, ObservableObject {
         }
     }
     
-    private func buildEbayAuthURL() -> String {
-        // Use production eBay OAuth
+    private func buildEbayAuthURLWithRuName() -> String {
+        // Use production eBay OAuth with proper RuName
         let baseURL = "https://auth.ebay.com/oauth2/authorize"
         let clientId = Configuration.ebayAPIKey
-        let redirectURI = "resellai://auth/ebay"
         
         // Use the exact scopes from your eBay app
         let scopes = [
@@ -1337,18 +1339,18 @@ class EbayService: NSObject, ObservableObject {
             "https://api.ebay.com/oauth/api_scope/sell.fulfillment"
         ].joined(separator: " ")
         
-        // Build URL components properly
+        // Build URL components properly with RuName instead of redirect_uri
         var components = URLComponents(string: baseURL)!
         components.queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
             URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "runame", value: ebayRuName), // Use RuName instead of redirect_uri
             URLQueryItem(name: "scope", value: scopes),
             URLQueryItem(name: "state", value: UUID().uuidString)
         ]
         
         let finalURL = components.url?.absoluteString ?? ""
-        print("🔗 Built eBay OAuth URL: \(finalURL)")
+        print("🔗 Built eBay OAuth URL with RuName: \(finalURL)")
         
         return finalURL
     }
@@ -1414,17 +1416,17 @@ class EbayService: NSObject, ObservableObject {
         let base64Credentials = credentialsData.base64EncodedString()
         request.setValue("Basic \(base64Credentials)", forHTTPHeaderField: "Authorization")
         
-        // Create request body
+        // Create request body with RuName
         let body = [
             "grant_type=authorization_code",
             "code=\(code)",
-            "redirect_uri=resellai://auth/ebay"
+            "runame=\(ebayRuName)" // Use RuName instead of redirect_uri
         ].joined(separator: "&")
         
         request.httpBody = body.data(using: .utf8)
         request.timeoutInterval = 30
         
-        print("📡 Making eBay token exchange request...")
+        print("📡 Making eBay token exchange request with RuName...")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             
