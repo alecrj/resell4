@@ -10,6 +10,7 @@ import UIKit
 import AVFoundation
 import PhotosUI
 import MessageUI
+import LocalAuthentication
 
 // MARK: - MAIN CONTENT VIEW WITH FIREBASE
 struct ContentView: View {
@@ -1630,6 +1631,15 @@ struct SettingsView: View {
                         }
                         .foregroundColor(.blue)
                         
+                        if firebaseService.isFaceIDAvailable {
+                            HStack {
+                                Text("Face ID")
+                                Spacer()
+                                Toggle("", isOn: .constant(firebaseService.isFaceIDEnabled))
+                                    .disabled(true)
+                            }
+                        }
+                        
                         Button("Sign Out") {
                             firebaseService.signOut()
                         }
@@ -2129,6 +2139,607 @@ struct FeatureRow: View {
             Text(text)
                 .font(.subheadline)
         }
+    }
+}
+
+// MARK: - COMPLETE FIREBASE AUTH VIEW WITH ALL METHODS
+struct FirebaseAuthView: View {
+    @EnvironmentObject var firebaseService: FirebaseService
+    @State private var showingSignUp = false
+    @State private var email = ""
+    @State private var password = ""
+    @State private var confirmPassword = ""
+    @State private var showingError = false
+    @State private var errorMessage = ""
+    @State private var showingFaceIDSetup = false
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 30) {
+                // App branding
+                VStack(spacing: 12) {
+                    Image(systemName: "brain.head.profile")
+                        .font(.system(size: 64))
+                        .foregroundColor(.blue)
+                    
+                    Text("ResellAI")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                    
+                    Text("AI-Powered Reselling Automation")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                
+                if firebaseService.isLoading {
+                    VStack(spacing: 16) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        
+                        Text("Signing you in...")
+                            .foregroundColor(.secondary)
+                    }
+                } else {
+                    VStack(spacing: 16) {
+                        // Apple Sign-In
+                        Button(action: {
+                            firebaseService.signInWithApple()
+                        }) {
+                            HStack {
+                                Image(systemName: "applelogo")
+                                    .font(.title2)
+                                Text("Continue with Apple")
+                                    .fontWeight(.semibold)
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(Color.black)
+                            .cornerRadius(12)
+                        }
+                        
+                        // Google Sign-In
+                        Button(action: {
+                            firebaseService.signInWithGoogle()
+                        }) {
+                            HStack {
+                                Image(systemName: "globe")
+                                    .font(.title2)
+                                Text("Continue with Google")
+                                    .fontWeight(.semibold)
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 50)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color.blue, Color.green],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .cornerRadius(12)
+                        }
+                        
+                        // Divider
+                        HStack {
+                            Rectangle()
+                                .frame(height: 1)
+                                .foregroundColor(.gray.opacity(0.3))
+                            
+                            Text("or")
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal)
+                            
+                            Rectangle()
+                                .frame(height: 1)
+                                .foregroundColor(.gray.opacity(0.3))
+                        }
+                        
+                        // Email/Password fields
+                        VStack(spacing: 12) {
+                            TextField("Email", text: $email)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                                .keyboardType(.emailAddress)
+                                .autocapitalization(.none)
+                                .disableAutocorrection(true)
+                            
+                            SecureField("Password", text: $password)
+                                .textFieldStyle(RoundedBorderTextFieldStyle())
+                            
+                            if showingSignUp {
+                                SecureField("Confirm Password", text: $confirmPassword)
+                                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                            }
+                        }
+                        
+                        // Action button
+                        Button(action: {
+                            if showingSignUp {
+                                createAccount()
+                            } else {
+                                signIn()
+                            }
+                        }) {
+                            Text(showingSignUp ? "Create Account" : "Sign In")
+                                .fontWeight(.semibold)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(Color.blue)
+                                .cornerRadius(12)
+                        }
+                        .disabled(email.isEmpty || password.isEmpty || (showingSignUp && confirmPassword.isEmpty))
+                        
+                        // Toggle sign up/in
+                        Button(action: {
+                            showingSignUp.toggle()
+                            clearFields()
+                        }) {
+                            Text(showingSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+                
+                Spacer()
+                
+                // Terms
+                Text("By continuing, you agree to our Terms of Service and Privacy Policy")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+            .padding(24)
+            .navigationBarHidden(true)
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
+        .sheet(isPresented: $showingFaceIDSetup) {
+            FaceIDSetupView()
+                .environmentObject(firebaseService)
+        }
+        .onChange(of: firebaseService.authError) { error in
+            if let error = error {
+                errorMessage = error
+                showingError = true
+            }
+        }
+        .onAppear {
+            // Check if Face ID setup should be offered
+            if firebaseService.isAuthenticated && firebaseService.isFaceIDAvailable && !firebaseService.isFaceIDEnabled {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    showingFaceIDSetup = true
+                }
+            }
+        }
+    }
+    
+    private func signIn() {
+        firebaseService.signInWithEmail(email, password: password) { success, error in
+            if !success {
+                errorMessage = error ?? "Sign in failed"
+                showingError = true
+            }
+        }
+    }
+    
+    private func createAccount() {
+        guard password == confirmPassword else {
+            errorMessage = "Passwords don't match"
+            showingError = true
+            return
+        }
+        
+        guard password.count >= 6 else {
+            errorMessage = "Password must be at least 6 characters"
+            showingError = true
+            return
+        }
+        
+        firebaseService.createAccount(email: email, password: password) { success, error in
+            if !success {
+                errorMessage = error ?? "Account creation failed"
+                showingError = true
+            }
+        }
+    }
+    
+    private func clearFields() {
+        email = ""
+        password = ""
+        confirmPassword = ""
+    }
+}
+
+// MARK: - FACE ID SETUP VIEW
+struct FaceIDSetupView: View {
+    @EnvironmentObject var firebaseService: FirebaseService
+    @Environment(\.dismiss) private var dismiss
+    @State private var isEnabling = false
+    @State private var showingError = false
+    @State private var errorMessage = ""
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 24) {
+                Spacer()
+                
+                // Face ID icon
+                Image(systemName: "faceid")
+                    .font(.system(size: 80))
+                    .foregroundColor(.blue)
+                
+                VStack(spacing: 12) {
+                    Text("Enable Face ID")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("Use Face ID for quick and secure access to ResellAI")
+                        .font(.body)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal)
+                }
+                
+                VStack(spacing: 16) {
+                    // Benefits
+                    VStack(alignment: .leading, spacing: 12) {
+                        BenefitRow(icon: "lock.shield", text: "Secure biometric authentication")
+                        BenefitRow(icon: "bolt", text: "Instant app access")
+                        BenefitRow(icon: "eye.slash", text: "No need to remember passwords")
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.systemGray6))
+                    )
+                }
+                
+                Spacer()
+                
+                VStack(spacing: 12) {
+                    // Enable Face ID button
+                    Button(action: enableFaceID) {
+                        HStack {
+                            if isEnabling {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                                Text("Enabling...")
+                            } else {
+                                Image(systemName: "faceid")
+                                Text("Enable Face ID")
+                            }
+                        }
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.blue)
+                        .cornerRadius(12)
+                    }
+                    .disabled(isEnabling)
+                    
+                    // Skip button
+                    Button("Maybe Later") {
+                        dismiss()
+                    }
+                    .foregroundColor(.secondary)
+                }
+            }
+            .padding(24)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Skip") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .alert("Error", isPresented: $showingError) {
+            Button("OK") { }
+        } message: {
+            Text(errorMessage)
+        }
+    }
+    
+    private func enableFaceID() {
+        isEnabling = true
+        
+        firebaseService.enableFaceID { success, error in
+            DispatchQueue.main.async {
+                self.isEnabling = false
+                
+                if success {
+                    self.dismiss()
+                } else {
+                    self.errorMessage = error ?? "Failed to enable Face ID"
+                    self.showingError = true
+                }
+            }
+        }
+    }
+}
+
+struct BenefitRow: View {
+    let icon: String
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .foregroundColor(.blue)
+                .frame(width: 24)
+            
+            Text(text)
+                .font(.subheadline)
+            
+            Spacer()
+        }
+    }
+}
+
+// MARK: - USAGE LIMIT VIEW (Updated)
+struct UsageLimitView: View {
+    @EnvironmentObject var firebaseService: FirebaseService
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 24) {
+                // Limit reached icon
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 64))
+                    .foregroundColor(.orange)
+                
+                Text("Monthly Limit Reached")
+                    .font(.title)
+                    .fontWeight(.bold)
+                
+                Text("You've used all \(firebaseService.currentUser?.monthlyAnalysisLimit ?? 0) AI analyses for this month.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+                
+                // Current plan info
+                if let user = firebaseService.currentUser {
+                    VStack(spacing: 12) {
+                        Text("Current Plan: \(user.currentPlan.displayName)")
+                            .font(.headline)
+                        
+                        Text("Resets in \(firebaseService.daysUntilReset) days")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                }
+                
+                // Upgrade options
+                VStack(spacing: 16) {
+                    Text("Upgrade for More Analyses")
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                    
+                    ForEach(UserPlan.allCases.filter { $0 != .free }, id: \.self) { plan in
+                        Button(action: {
+                            upgradeToPlan(plan)
+                        }) {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(plan.displayName)
+                                        .fontWeight(.semibold)
+                                    
+                                    Text("\(plan.monthlyLimit) analyses/month")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Text(plan.price)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.blue)
+                            }
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(12)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                
+                Button("Continue with Free Plan") {
+                    dismiss()
+                }
+                .foregroundColor(.secondary)
+                
+                Spacer()
+            }
+            .padding(24)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func upgradeToPlan(_ plan: UserPlan) {
+        firebaseService.upgradePlan(to: plan) { success in
+            if success {
+                dismiss()
+            }
+        }
+    }
+}
+
+// MARK: - PLAN FEATURES VIEW (Updated)
+struct PlanFeaturesView: View {
+    @EnvironmentObject var firebaseService: FirebaseService
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 24) {
+                    Text("Choose Your Plan")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
+                        .padding(.top)
+                    
+                    ForEach(UserPlan.allCases, id: \.self) { plan in
+                        PlanCard(
+                            plan: plan,
+                            isCurrentPlan: firebaseService.currentUser?.currentPlan == plan,
+                            onSelect: {
+                                if plan != .free {
+                                    upgradeToPlan(plan)
+                                }
+                            }
+                        )
+                    }
+                    
+                    // Face ID section
+                    if firebaseService.isFaceIDAvailable {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Security Features")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            
+                            HStack {
+                                Image(systemName: "faceid")
+                                    .foregroundColor(.blue)
+                                
+                                VStack(alignment: .leading) {
+                                    Text("Face ID")
+                                        .fontWeight(.medium)
+                                    
+                                    Text(firebaseService.isFaceIDEnabled ? "Enabled" : "Available")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                if !firebaseService.isFaceIDEnabled {
+                                    Button("Enable") {
+                                        enableFaceID()
+                                    }
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                                }
+                            }
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(12)
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+    
+    private func upgradeToPlan(_ plan: UserPlan) {
+        firebaseService.upgradePlan(to: plan) { success in
+            if success {
+                dismiss()
+            }
+        }
+    }
+    
+    private func enableFaceID() {
+        firebaseService.enableFaceID { success, error in
+            if let error = error {
+                print("❌ Failed to enable Face ID: \(error)")
+            }
+        }
+    }
+}
+
+struct PlanCard: View {
+    let plan: UserPlan
+    let isCurrentPlan: Bool
+    let onSelect: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text(plan.displayName)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Spacer()
+                
+                if isCurrentPlan {
+                    Text("Current")
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+            }
+            
+            Text(plan.price)
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundColor(.blue)
+            
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(plan.features, id: \.self) { feature in
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        
+                        Text(feature)
+                            .font(.subheadline)
+                        
+                        Spacer()
+                    }
+                }
+            }
+            
+            if !isCurrentPlan && plan != .free {
+                Button(action: onSelect) {
+                    Text("Select \(plan.displayName)")
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(Color.blue)
+                        .cornerRadius(12)
+                }
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemGray6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(isCurrentPlan ? Color.blue : Color.clear, lineWidth: 2)
+                )
+        )
     }
 }
 

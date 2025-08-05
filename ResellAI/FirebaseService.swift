@@ -2,7 +2,7 @@
 //  FirebaseService.swift
 //  ResellAI
 //
-//  Complete Firebase Backend Integration with Real Firebase SDK
+//  Complete Firebase Backend Integration with All Auth Methods
 //
 
 import SwiftUI
@@ -12,6 +12,8 @@ import FirebaseAuth
 import FirebaseFirestore
 import AuthenticationServices
 import CryptoKit
+import LocalAuthentication
+import GoogleSignIn
 
 // MARK: - FIREBASE MODELS
 struct FirebaseUser: Codable, Identifiable {
@@ -19,7 +21,7 @@ struct FirebaseUser: Codable, Identifiable {
     let email: String?
     let displayName: String?
     let photoURL: String?
-    let provider: String // "apple" or "email"
+    let provider: String // "apple", "google", or "email"
     let createdAt: Date
     let lastLoginAt: Date
     
@@ -33,6 +35,10 @@ struct FirebaseUser: Codable, Identifiable {
     let hasEbayConnected: Bool
     let ebayUserId: String?
     let ebayTokenExpiry: Date?
+    
+    // Security
+    let hasFaceIDEnabled: Bool
+    let lastFaceIDCheck: Date?
     
     init(id: String, email: String?, displayName: String?, photoURL: String? = nil, provider: String) {
         self.id = id
@@ -53,6 +59,10 @@ struct FirebaseUser: Codable, Identifiable {
         self.hasEbayConnected = false
         self.ebayUserId = nil
         self.ebayTokenExpiry = nil
+        
+        // Default Face ID
+        self.hasFaceIDEnabled = false
+        self.lastFaceIDCheck = nil
     }
     
     // Initialize from Firebase Auth User
@@ -61,7 +71,16 @@ struct FirebaseUser: Codable, Identifiable {
         self.email = authUser.email
         self.displayName = authUser.displayName
         self.photoURL = authUser.photoURL?.absoluteString
-        self.provider = authUser.providerData.first?.providerID == "apple.com" ? "apple" : "email"
+        
+        // Determine provider
+        if authUser.providerData.contains(where: { $0.providerID == "apple.com" }) {
+            self.provider = "apple"
+        } else if authUser.providerData.contains(where: { $0.providerID == "google.com" }) {
+            self.provider = "google"
+        } else {
+            self.provider = "email"
+        }
+        
         self.createdAt = authUser.metadata.creationDate ?? Date()
         self.lastLoginAt = authUser.metadata.lastSignInDate ?? Date()
         
@@ -73,6 +92,8 @@ struct FirebaseUser: Codable, Identifiable {
         self.hasEbayConnected = false
         self.ebayUserId = nil
         self.ebayTokenExpiry = nil
+        self.hasFaceIDEnabled = false
+        self.lastFaceIDCheck = nil
     }
 }
 
@@ -177,8 +198,8 @@ struct UsageRecord: Codable {
     let metadata: [String: String] // Additional context
 }
 
-// MARK: - FIREBASE SERVICE WITH REAL FIREBASE SDK
-class FirebaseService: ObservableObject {
+// MARK: - FIREBASE SERVICE WITH ALL AUTH METHODS
+class FirebaseService: NSObject, ObservableObject {
     @Published var currentUser: FirebaseUser?
     @Published var isAuthenticated = false
     @Published var isLoading = false
@@ -189,6 +210,10 @@ class FirebaseService: ObservableObject {
     @Published var canAnalyze = true
     @Published var daysUntilReset = 0
     
+    // Face ID
+    @Published var isFaceIDEnabled = false
+    @Published var isFaceIDAvailable = false
+    
     // Firebase instances
     private let auth = Auth.auth()
     private let db = Firestore.firestore()
@@ -196,9 +221,14 @@ class FirebaseService: ObservableObject {
     // Apple Sign In
     private var currentNonce: String?
     
-    init() {
+    // Face ID Context
+    private let biometricContext = LAContext()
+    
+    override init() {
+        super.init()
         print("🔥 Firebase Service initialized")
         configureFirebase()
+        checkBiometricAvailability()
         setupAuthStateListener()
     }
     
@@ -208,6 +238,30 @@ class FirebaseService: ObservableObject {
             print("⚠️ Firebase not configured - run FirebaseApp.configure() in App delegate")
         } else {
             print("✅ Firebase configured successfully")
+        }
+        
+        // Configure Google Sign In
+        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+              let plist = NSDictionary(contentsOfFile: path),
+              let clientId = plist["CLIENT_ID"] as? String else {
+            print("⚠️ Could not find Google Service Info")
+            return
+        }
+        
+        let config = GIDConfiguration(clientID: clientId)
+        GIDSignIn.sharedInstance.configuration = config
+        print("✅ Google Sign In configured")
+    }
+    
+    private func checkBiometricAvailability() {
+        var error: NSError?
+        if biometricContext.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
+            DispatchQueue.main.async {
+                self.isFaceIDAvailable = true
+                print("✅ Face ID/Touch ID available")
+            }
+        } else {
+            print("⚠️ Biometric authentication not available: \(error?.localizedDescription ?? "Unknown error")")
         }
     }
     
@@ -234,6 +288,7 @@ class FirebaseService: ObservableObject {
             DispatchQueue.main.async {
                 if let firebaseUser = firebaseUser {
                     self?.currentUser = firebaseUser
+                    self?.isFaceIDEnabled = firebaseUser.hasFaceIDEnabled
                 } else {
                     // Create new user record
                     let newUser = FirebaseUser(from: user)
@@ -254,9 +309,10 @@ class FirebaseService: ObservableObject {
         monthlyAnalysisCount = 0
         canAnalyze = true
         authError = nil
+        isFaceIDEnabled = false
     }
     
-    // MARK: - APPLE SIGN IN WITH FIREBASE
+    // MARK: - APPLE SIGN IN
     func signInWithApple() {
         print("🍎 Starting Apple Sign-In with Firebase...")
         isLoading = true
@@ -274,6 +330,55 @@ class FirebaseService: ObservableObject {
         authorizationController.delegate = self
         authorizationController.presentationContextProvider = self
         authorizationController.performRequests()
+    }
+    
+    // MARK: - GOOGLE SIGN IN
+    func signInWithGoogle() {
+        print("🔍 Starting Google Sign-In with Firebase...")
+        
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootViewController = windowScene.windows.first?.rootViewController else {
+            print("❌ Could not find root view controller")
+            return
+        }
+        
+        isLoading = true
+        authError = nil
+        
+        GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { [weak self] result, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    self?.isLoading = false
+                    self?.authError = "Google Sign In failed: \(error.localizedDescription)"
+                    print("❌ Google Sign In error: \(error)")
+                    return
+                }
+                
+                guard let user = result?.user,
+                      let idToken = user.idToken?.tokenString else {
+                    self?.isLoading = false
+                    self?.authError = "Failed to get Google ID token"
+                    return
+                }
+                
+                let credential = GoogleAuthProvider.credential(withIDToken: idToken,
+                                                               accessToken: user.accessToken.tokenString)
+                
+                self?.auth.signIn(with: credential) { authResult, error in
+                    DispatchQueue.main.async {
+                        self?.isLoading = false
+                        
+                        if let error = error {
+                            self?.authError = self?.parseAuthError(error) ?? "Google Sign In failed"
+                            print("❌ Firebase Google Sign In failed: \(error)")
+                        } else {
+                            print("✅ Google Sign In successful")
+                            self?.trackUsage(action: "google_sign_in")
+                        }
+                    }
+                }
+            }
+        }
     }
     
     // MARK: - EMAIL AUTHENTICATION
@@ -323,10 +428,79 @@ class FirebaseService: ObservableObject {
         }
     }
     
+    // MARK: - FACE ID AUTHENTICATION
+    func enableFaceID(completion: @escaping (Bool, String?) -> Void) {
+        guard isFaceIDAvailable else {
+            completion(false, "Face ID not available on this device")
+            return
+        }
+        
+        let reason = "Enable Face ID for secure access to ResellAI"
+        
+        biometricContext.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { [weak self] success, error in
+            DispatchQueue.main.async {
+                if success {
+                    self?.isFaceIDEnabled = true
+                    self?.updateUserFaceIDSetting(enabled: true)
+                    completion(true, nil)
+                    print("✅ Face ID enabled")
+                } else {
+                    let message = error?.localizedDescription ?? "Face ID setup failed"
+                    completion(false, message)
+                    print("❌ Face ID setup failed: \(message)")
+                }
+            }
+        }
+    }
+    
+    func authenticateWithFaceID(completion: @escaping (Bool, String?) -> Void) {
+        guard isFaceIDEnabled && isFaceIDAvailable else {
+            completion(false, "Face ID not enabled or available")
+            return
+        }
+        
+        let reason = "Authenticate with Face ID to access ResellAI"
+        
+        biometricContext.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, error in
+            DispatchQueue.main.async {
+                if success {
+                    completion(true, nil)
+                    print("✅ Face ID authentication successful")
+                } else {
+                    let message = error?.localizedDescription ?? "Face ID authentication failed"
+                    completion(false, message)
+                    print("❌ Face ID authentication failed: \(message)")
+                }
+            }
+        }
+    }
+    
+    func disableFaceID() {
+        isFaceIDEnabled = false
+        updateUserFaceIDSetting(enabled: false)
+        print("✅ Face ID disabled")
+    }
+    
+    private func updateUserFaceIDSetting(enabled: Bool) {
+        guard let user = currentUser else { return }
+        
+        db.collection("users").document(user.id).updateData([
+            "hasFaceIDEnabled": enabled,
+            "lastFaceIDCheck": Timestamp()
+        ]) { error in
+            if let error = error {
+                print("❌ Error updating Face ID setting: \(error)")
+            } else {
+                print("✅ Face ID setting updated in Firestore")
+            }
+        }
+    }
+    
     func signOut() {
         print("👋 Signing out user")
         do {
             try auth.signOut()
+            GIDSignIn.sharedInstance.signOut()
             // handleSignedOutUser() will be called by auth state listener
         } catch {
             print("❌ Sign out error: \(error)")
@@ -350,7 +524,9 @@ class FirebaseService: ObservableObject {
             
             do {
                 let jsonData = try JSONSerialization.data(withJSONObject: data)
-                let user = try JSONDecoder().decode(FirebaseUser.self, from: jsonData)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .secondsSince1970
+                let user = try decoder.decode(FirebaseUser.self, from: jsonData)
                 print("✅ User data loaded from Firestore")
                 completion(user)
             } catch {
@@ -380,26 +556,6 @@ class FirebaseService: ObservableObject {
         }
     }
     
-    private func updateUserDocument(_ user: FirebaseUser) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        
-        do {
-            let data = try encoder.encode(user)
-            let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            
-            db.collection("users").document(user.id).updateData(dict) { error in
-                if let error = error {
-                    print("❌ Error updating user document: \(error)")
-                } else {
-                    print("✅ User document updated in Firestore")
-                }
-            }
-        } catch {
-            print("❌ Error encoding user data for update: \(error)")
-        }
-    }
-    
     // MARK: - USAGE TRACKING & LIMITS
     func trackUsage(action: String, metadata: [String: String] = [:]) {
         guard let user = currentUser else { return }
@@ -419,11 +575,6 @@ class FirebaseService: ObservableObject {
         if action == "analysis" {
             monthlyAnalysisCount += 1
             updateAnalysisLimit()
-            
-            // Update user document with new count
-            var updatedUser = user
-            // Note: We need to create a mutable copy properly
-            // For now, we'll update the document directly
             updateUserUsageCount()
         }
         
@@ -609,7 +760,9 @@ class FirebaseService: ObservableObject {
                     do {
                         let data = doc.data()
                         let jsonData = try JSONSerialization.data(withJSONObject: data)
-                        let item = try JSONDecoder().decode(FirebaseInventoryItem.self, from: jsonData)
+                        let decoder = JSONDecoder()
+                        decoder.dateDecodingStrategy = .secondsSince1970
+                        let item = try decoder.decode(FirebaseInventoryItem.self, from: jsonData)
                         items.append(item)
                     } catch {
                         print("❌ Error decoding inventory item: \(error)")
@@ -645,7 +798,6 @@ class FirebaseService: ObservableObject {
                 
                 // Update local user
                 if var updatedUser = self?.currentUser {
-                    // Create updated user with new plan
                     let newUser = FirebaseUser(
                         id: updatedUser.id,
                         email: updatedUser.email,
@@ -748,9 +900,9 @@ extension FirebaseService: ASAuthorizationControllerDelegate {
             }
             
             // Initialize a Firebase credential
-            let credential = OAuthProvider.credential(withProviderID: "apple.com",
-                                                      idToken: idTokenString,
-                                                      rawNonce: nonce)
+            let credential = OAuthProvider.appleCredential(withIDToken: idTokenString,
+                                                           rawNonce: nonce,
+                                                           fullName: appleIDCredential.fullName)
             
             // Sign in with Firebase
             auth.signIn(with: credential) { [weak self] result, error in
@@ -849,390 +1001,5 @@ extension FirebaseService {
         }.joined()
         
         return hashString
-    }
-}
-
-// MARK: - FIREBASE AUTH VIEW
-struct FirebaseAuthView: View {
-    @EnvironmentObject var firebaseService: FirebaseService
-    @State private var showingSignUp = false
-    @State private var email = ""
-    @State private var password = ""
-    @State private var confirmPassword = ""
-    @State private var showingError = false
-    @State private var errorMessage = ""
-    
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 30) {
-                // App branding
-                VStack(spacing: 12) {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 64))
-                        .foregroundColor(.blue)
-                    
-                    Text("ResellAI")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                    
-                    Text("AI-Powered Reselling Automation")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                
-                if firebaseService.isLoading {
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                        
-                        Text("Signing you in...")
-                            .foregroundColor(.secondary)
-                    }
-                } else {
-                    VStack(spacing: 16) {
-                        // Apple Sign-In
-                        Button(action: {
-                            firebaseService.signInWithApple()
-                        }) {
-                            HStack {
-                                Image(systemName: "applelogo")
-                                    .font(.title2)
-                                Text("Continue with Apple")
-                                    .fontWeight(.semibold)
-                            }
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 50)
-                            .background(Color.black)
-                            .cornerRadius(12)
-                        }
-                        
-                        // Divider
-                        HStack {
-                            Rectangle()
-                                .frame(height: 1)
-                                .foregroundColor(.gray.opacity(0.3))
-                            
-                            Text("or")
-                                .foregroundColor(.secondary)
-                                .padding(.horizontal)
-                            
-                            Rectangle()
-                                .frame(height: 1)
-                                .foregroundColor(.gray.opacity(0.3))
-                        }
-                        
-                        // Email/Password fields
-                        VStack(spacing: 12) {
-                            TextField("Email", text: $email)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                                .keyboardType(.emailAddress)
-                                .autocapitalization(.none)
-                            
-                            SecureField("Password", text: $password)
-                                .textFieldStyle(RoundedBorderTextFieldStyle())
-                            
-                            if showingSignUp {
-                                SecureField("Confirm Password", text: $confirmPassword)
-                                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                            }
-                        }
-                        
-                        // Action button
-                        Button(action: {
-                            if showingSignUp {
-                                createAccount()
-                            } else {
-                                signIn()
-                            }
-                        }) {
-                            Text(showingSignUp ? "Create Account" : "Sign In")
-                                .fontWeight(.semibold)
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 50)
-                                .background(Color.blue)
-                                .cornerRadius(12)
-                        }
-                        .disabled(email.isEmpty || password.isEmpty || (showingSignUp && confirmPassword.isEmpty))
-                        
-                        // Toggle sign up/in
-                        Button(action: {
-                            showingSignUp.toggle()
-                            clearFields()
-                        }) {
-                            Text(showingSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
-                                .foregroundColor(.blue)
-                        }
-                    }
-                }
-                
-                Spacer()
-                
-                // Terms
-                Text("By continuing, you agree to our Terms of Service and Privacy Policy")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            .padding(24)
-            .navigationBarHidden(true)
-        }
-        .alert("Error", isPresented: $showingError) {
-            Button("OK") { }
-        } message: {
-            Text(errorMessage)
-        }
-        .onChange(of: firebaseService.authError) { error in
-            if let error = error {
-                errorMessage = error
-                showingError = true
-            }
-        }
-    }
-    
-    private func signIn() {
-        firebaseService.signInWithEmail(email, password: password) { success, error in
-            if !success {
-                errorMessage = error ?? "Sign in failed"
-                showingError = true
-            }
-        }
-    }
-    
-    private func createAccount() {
-        guard password == confirmPassword else {
-            errorMessage = "Passwords don't match"
-            showingError = true
-            return
-        }
-        
-        firebaseService.createAccount(email: email, password: password) { success, error in
-            if !success {
-                errorMessage = error ?? "Account creation failed"
-                showingError = true
-            }
-        }
-    }
-    
-    private func clearFields() {
-        email = ""
-        password = ""
-        confirmPassword = ""
-    }
-}
-
-// MARK: - USAGE LIMIT VIEW
-struct UsageLimitView: View {
-    @EnvironmentObject var firebaseService: FirebaseService
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        NavigationView {
-            VStack(spacing: 24) {
-                // Limit reached icon
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 64))
-                    .foregroundColor(.orange)
-                
-                Text("Monthly Limit Reached")
-                    .font(.title)
-                    .fontWeight(.bold)
-                
-                Text("You've used all \(firebaseService.currentUser?.monthlyAnalysisLimit ?? 0) AI analyses for this month.")
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
-                
-                // Current plan info
-                if let user = firebaseService.currentUser {
-                    VStack(spacing: 12) {
-                        Text("Current Plan: \(user.currentPlan.displayName)")
-                            .font(.headline)
-                        
-                        Text("Resets in \(firebaseService.daysUntilReset) days")
-                            .foregroundColor(.secondary)
-                    }
-                    .padding()
-                    .background(Color(.systemGray6))
-                    .cornerRadius(12)
-                }
-                
-                // Upgrade options
-                VStack(spacing: 16) {
-                    Text("Upgrade for More Analyses")
-                        .font(.headline)
-                        .foregroundColor(.blue)
-                    
-                    ForEach(UserPlan.allCases.filter { $0 != .free }, id: \.self) { plan in
-                        Button(action: {
-                            upgradeToPlan(plan)
-                        }) {
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(plan.displayName)
-                                        .fontWeight(.semibold)
-                                    
-                                    Text("\(plan.monthlyLimit) analyses/month")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                
-                                Spacer()
-                                
-                                Text(plan.price)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.blue)
-                            }
-                            .padding()
-                            .background(Color(.systemGray6))
-                            .cornerRadius(12)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
-                }
-                
-                Button("Continue with Free Plan") {
-                    dismiss()
-                }
-                .foregroundColor(.secondary)
-                
-                Spacer()
-            }
-            .padding(24)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Close") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-    
-    private func upgradeToPlan(_ plan: UserPlan) {
-        firebaseService.upgradePlan(to: plan) { success in
-            if success {
-                dismiss()
-            }
-        }
-    }
-}
-
-// MARK: - PLAN FEATURES VIEW
-struct PlanFeaturesView: View {
-    @EnvironmentObject var firebaseService: FirebaseService
-    @Environment(\.dismiss) private var dismiss
-    
-    var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 24) {
-                    Text("Choose Your Plan")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
-                        .padding(.top)
-                    
-                    ForEach(UserPlan.allCases, id: \.self) { plan in
-                        PlanCard(
-                            plan: plan,
-                            isCurrentPlan: firebaseService.currentUser?.currentPlan == plan,
-                            onSelect: {
-                                if plan != .free {
-                                    upgradeToPlan(plan)
-                                }
-                            }
-                        )
-                    }
-                }
-                .padding()
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
-        }
-    }
-    
-    private func upgradeToPlan(_ plan: UserPlan) {
-        firebaseService.upgradePlan(to: plan) { success in
-            if success {
-                dismiss()
-            }
-        }
-    }
-}
-
-struct PlanCard: View {
-    let plan: UserPlan
-    let isCurrentPlan: Bool
-    let onSelect: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(plan.displayName)
-                    .font(.title2)
-                    .fontWeight(.bold)
-                
-                Spacer()
-                
-                if isCurrentPlan {
-                    Text("Current")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                }
-            }
-            
-            Text(plan.price)
-                .font(.title3)
-                .fontWeight(.semibold)
-                .foregroundColor(.blue)
-            
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(plan.features, id: \.self) { feature in
-                    HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                        
-                        Text(feature)
-                            .font(.subheadline)
-                        
-                        Spacer()
-                    }
-                }
-            }
-            
-            if !isCurrentPlan && plan != .free {
-                Button(action: onSelect) {
-                    Text("Select \(plan.displayName)")
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(Color.blue)
-                        .cornerRadius(12)
-                }
-            }
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemGray6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(isCurrentPlan ? Color.blue : Color.clear, lineWidth: 2)
-                )
-        )
     }
 }

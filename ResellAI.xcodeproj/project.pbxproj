@@ -10,6 +10,7 @@
 		70D3197E2E4262AF00F25783 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 70D3197D2E4262AF00F25783 /* FirebaseAuth */; };
 		70D319802E4262AF00F25783 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 70D3197F2E4262AF00F25783 /* FirebaseCore */; };
 		70D319822E4262AF00F25783 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 70D319812E4262AF00F25783 /* FirebaseFirestore */; };
+		70D319872E426A2E00F25783 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = 70D319862E426A2E00F25783 /* GoogleSignIn */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +73,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				70D319802E4262AF00F25783 /* FirebaseCore in Frameworks */,
+				70D319872E426A2E00F25783 /* GoogleSignIn in Frameworks */,
 				70D3197E2E4262AF00F25783 /* FirebaseAuth in Frameworks */,
 				70D319822E4262AF00F25783 /* FirebaseFirestore in Frameworks */,
 			);
@@ -137,6 +139,7 @@
 				70D3197D2E4262AF00F25783 /* FirebaseAuth */,
 				70D3197F2E4262AF00F25783 /* FirebaseCore */,
 				70D319812E4262AF00F25783 /* FirebaseFirestore */,
+				70D319862E426A2E00F25783 /* GoogleSignIn */,
 			);
 			productName = ResellAI;
 			productReference = 707297812E356208002A16B6 /* ResellAI.app */;
@@ -222,6 +225,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				70D3197C2E4262AE00F25783 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				70D319852E426A2E00F25783 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 707297822E356208002A16B6 /* Products */;
@@ -423,6 +427,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ResellAI/ResellAI.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 874DZM3NCG;
@@ -454,6 +459,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = ResellAI/ResellAI.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 874DZM3NCG;
@@ -602,6 +608,14 @@
 				minimumVersion = 12.1.0;
 			};
 		};
+		70D319852E426A2E00F25783 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -619,6 +633,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 70D3197C2E4262AE00F25783 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseFirestore;
+		};
+		70D319862E426A2E00F25783 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 70D319852E426A2E00F25783 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
