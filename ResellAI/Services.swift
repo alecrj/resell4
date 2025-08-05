@@ -2,15 +2,16 @@
 //  Services.swift
 //  ResellAI
 //
-//  Complete Reselling Automation - Fixed eBay OAuth
+//  Complete Reselling Automation with Firebase Integration
 //
 
 import SwiftUI
 import Foundation
 import Vision
 import AuthenticationServices
+import FirebaseFirestore
 
-// MARK: - MAIN BUSINESS SERVICE (Updated with Firebase)
+// MARK: - MAIN BUSINESS SERVICE WITH FIREBASE INTEGRATION
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -21,11 +22,11 @@ class BusinessService: ObservableObject {
     @Published var lastSyncDate: Date?
     
     private let aiService = AIAnalysisService()
-    let ebayService = EbayService() // Make public for debug access
+    let ebayService = EbayService()
     private let googleSheetsService = GoogleSheetsService()
     
     // Firebase integration
-    @Published var firebaseService: FirebaseService?
+    private weak var firebaseService: FirebaseService?
     
     init() {
         print("🚀 Complete Reselling Automation initialized")
@@ -37,7 +38,7 @@ class BusinessService: ObservableObject {
         authenticateGoogleSheets()
     }
     
-    // MARK: - COMPLETE ITEM ANALYSIS WITH USAGE TRACKING
+    // MARK: - COMPLETE ITEM ANALYSIS WITH FIREBASE USAGE TRACKING
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             completion(nil)
@@ -235,17 +236,14 @@ class BusinessService: ObservableObject {
     private func buildOptimizedSearchQuery(from productResult: ProductIdentificationResult) -> String {
         var query = ""
         
-        // Start with brand
         if !productResult.brand.isEmpty {
             query += productResult.brand + " "
         }
         
-        // Add key product terms, but clean them
         let productName = productResult.exactProduct
             .replacingOccurrences(of: productResult.brand, with: "", options: .caseInsensitive)
             .trimmingCharacters(in: .whitespaces)
         
-        // Get the most important words (skip common words)
         let importantWords = productName.components(separatedBy: " ")
             .filter { word in
                 let w = word.lowercased()
@@ -993,7 +991,7 @@ class AIAnalysisService: ObservableObject {
     }
 }
 
-// MARK: - EBAY SERVICE (FIXED - SINGLE AUTHENTICATE METHOD)
+// MARK: - EBAY SERVICE
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -1009,11 +1007,9 @@ class EbayService: NSObject, ObservableObject {
         loadSavedTokens()
     }
     
-    // MARK: - WORKING EBAY OAUTH (SINGLE METHOD)
     func authenticate(completion: @escaping (Bool) -> Void) {
         print("🔐 Starting eBay OAuth authentication...")
         
-        // Use the EXACT working URL format from your test
         let authURL = buildWorkingEbayOAuthURL()
         print("🌐 eBay OAuth URL: \(authURL)")
         
@@ -1029,12 +1025,9 @@ class EbayService: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.authStatus = "Opening eBay authentication..."
             
-            // Clean up any existing session
             self.authSession?.cancel()
             
             print("🚀 Creating ASWebAuthenticationSession...")
-            print("  - URL: \(url)")
-            print("  - Callback scheme: resellai")
             
             self.authSession = ASWebAuthenticationSession(
                 url: url,
@@ -1050,8 +1043,6 @@ class EbayService: NSObject, ObservableObject {
                         switch authError.code {
                         case .canceledLogin:
                             print("🤔 Session ended - checking if authorization succeeded...")
-                            // Check if user saw "Authorization successfully completed" message
-                            // This happens when eBay redirect doesn't work but OAuth succeeded
                             self?.checkForSuccessfulAuth(completion: completion)
                             return
                         case .presentationContextNotProvided:
@@ -1084,7 +1075,6 @@ class EbayService: NSObject, ObservableObject {
                 completion(true)
             }
             
-            // Set presentation context provider
             self.authSession?.presentationContextProvider = self
             self.authSession?.prefersEphemeralWebBrowserSession = false
             
@@ -1105,13 +1095,8 @@ class EbayService: NSObject, ObservableObject {
     private func checkForSuccessfulAuth(completion: @escaping (Bool) -> Void) {
         print("🔍 Checking if eBay authorization succeeded despite redirect issues...")
         
-        // If user saw "Authorization successfully completed" but pressed cancel,
-        // we can treat this as a successful auth for now
         DispatchQueue.main.async {
             self.authStatus = "eBay authorization succeeded - redirect issue"
-            
-            // For now, mark as authenticated so user can proceed
-            // In production, you'd implement token refresh or re-auth as needed
             self.isAuthenticated = true
             self.authStatus = "Connected to eBay (manual confirmation)"
             
@@ -1123,12 +1108,10 @@ class EbayService: NSObject, ObservableObject {
     }
     
     private func buildWorkingEbayOAuthURL() -> String {
-        // Use RuName as redirect_uri - eBay will redirect RuName to our HTTPS URL
         let baseURL = "https://auth.ebay.com/oauth2/authorize"
         let clientId = Configuration.ebayAPIKey
-        let redirectUri = Configuration.ebayRuName // Must use RuName, not HTTPS URL
+        let redirectUri = Configuration.ebayRuName
         
-        // Use complete scopes from eBay Developer Console
         let scopes = [
             "https://api.ebay.com/oauth/api_scope",
             "https://api.ebay.com/oauth/api_scope/sell.marketing.readonly",
@@ -1155,7 +1138,6 @@ class EbayService: NSObject, ObservableObject {
         
         let state = UUID().uuidString
         
-        // Build URL exactly like the working manual version
         var components = URLComponents(string: baseURL)!
         components.queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
@@ -1165,20 +1147,11 @@ class EbayService: NSObject, ObservableObject {
             URLQueryItem(name: "state", value: state)
         ]
         
-        let finalURL = components.url?.absoluteString ?? ""
-        
-        print("🔗 OAuth URL Components:")
-        print("  - Client ID: \(clientId)")
-        print("  - Redirect URI: \(redirectUri)")
-        print("  - Scopes: \(scopes.components(separatedBy: " ").count) scopes")
-        print("  - State: \(state)")
-        
-        return finalURL
+        return components.url?.absoluteString ?? ""
     }
     
     func handleAuthCallback(url: URL) {
         print("🔗 Processing eBay OAuth callback: \(url)")
-        print("🔗 Full URL: \(url.absoluteString)")
         
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             print("❌ Could not parse URL components")
@@ -1188,14 +1161,7 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        print("🔍 URL components:")
-        print("  - Scheme: \(components.scheme ?? "nil")")
-        print("  - Host: \(components.host ?? "nil")")
-        print("  - Path: \(components.path)")
-        print("  - Query: \(components.query ?? "nil")")
-        
         let queryItems = components.queryItems ?? []
-        print("📊 Query items: \(queryItems.map { "\($0.name)=\($0.value ?? "nil")" })")
         
         if let code = queryItems.first(where: { $0.name == "code" })?.value {
             print("✅ Received eBay authorization code: \(String(code.prefix(10)))...")
@@ -1208,10 +1174,6 @@ class EbayService: NSObject, ObservableObject {
             let errorDescription = queryItems.first(where: { $0.name == "error_description" })?.value
             print("❌ eBay OAuth error: \(error)")
             
-            if let description = errorDescription {
-                print("❌ Error description: \(description)")
-            }
-            
             DispatchQueue.main.async {
                 if error == "declined" {
                     self.authStatus = "User declined eBay connection"
@@ -1219,20 +1181,10 @@ class EbayService: NSObject, ObservableObject {
                     self.authStatus = "eBay error: \(error)"
                 }
             }
-            
         } else {
             print("❌ No authorization code or error in callback")
-            print("📊 This might be a direct app open - checking for other patterns...")
-            
-            // Check if this is just opening the app without OAuth data
-            if queryItems.isEmpty && components.path.contains("ebay") {
-                DispatchQueue.main.async {
-                    self.authStatus = "Waiting for eBay response..."
-                }
-            } else {
-                DispatchQueue.main.async {
-                    self.authStatus = "No authorization data received"
-                }
+            DispatchQueue.main.async {
+                self.authStatus = "No authorization data received"
             }
         }
     }
@@ -1259,13 +1211,11 @@ class EbayService: NSObject, ObservableObject {
         let body = [
             "grant_type=authorization_code",
             "code=\(code)",
-            "redirect_uri=\(Configuration.ebayRuName)"  // Must match OAuth request
+            "redirect_uri=\(Configuration.ebayRuName)"
         ].joined(separator: "&")
         
         request.httpBody = body.data(using: .utf8)
         request.timeoutInterval = 30
-        
-        print("📡 Making eBay token exchange request...")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             
@@ -1319,7 +1269,6 @@ class EbayService: NSObject, ObservableObject {
                         
                     } else {
                         print("❌ No access token in eBay response")
-                        print("📊 Response keys: \(json.keys)")
                         DispatchQueue.main.async {
                             self?.authStatus = "Invalid token response"
                         }
@@ -1386,8 +1335,6 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        print("📡 RapidAPI POST request: \(query)")
-        
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
                 print("❌ RapidAPI network error: \(error)")
@@ -1408,9 +1355,6 @@ class EbayService: NSObject, ObservableObject {
                 
                 if httpResponse.statusCode != 200 {
                     print("❌ RapidAPI HTTP error \(httpResponse.statusCode)")
-                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
-                        print("❌ Error response: \(String(errorString.prefix(500)))")
-                    }
                     completion([])
                     return
                 }
@@ -1422,20 +1366,10 @@ class EbayService: NSObject, ObservableObject {
                 return
             }
             
-            if let rawString = String(data: data, encoding: .utf8) {
-                print("📊 RapidAPI response length: \(rawString.count)")
-                print("📊 Response preview: \(String(rawString.prefix(500)))")
-            }
-            
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     let soldItems = self.parseRapidAPIResponse(json)
                     print("✅ RapidAPI: Found \(soldItems.count) valid sold items")
-                    
-                    if let first = soldItems.first {
-                        print("📊 Sample item: \(first.title) - $\(first.price)")
-                    }
-                    
                     completion(soldItems)
                 } else {
                     print("❌ Invalid JSON format from RapidAPI")
@@ -1451,13 +1385,9 @@ class EbayService: NSObject, ObservableObject {
     private func parseRapidAPIResponse(_ json: [String: Any]) -> [EbaySoldItem] {
         var soldItems: [EbaySoldItem] = []
         
-        print("🔍 Parsing RapidAPI response structure...")
-        
         if let averagePrice = json["average_price"] as? Double,
            let totalResults = json["total_results"] as? Int,
            totalResults > 0 {
-            
-            print("📊 Found summary data: average_price=\(averagePrice), total_results=\(totalResults)")
             
             if let minPrice = json["min_price"] as? Double,
                let maxPrice = json["max_price"] as? Double,
@@ -1476,14 +1406,10 @@ class EbayService: NSObject, ObservableObject {
                     )
                     soldItems.append(soldItem)
                 }
-                
-                print("✅ Created \(soldItems.count) synthetic items from price data")
             }
         }
         
         if let products = json["products"] as? [[String: Any]], !products.isEmpty {
-            print("📦 Found \(products.count) products array")
-            
             for product in products {
                 if let item = parseIndividualProduct(product) {
                     soldItems.append(item)
@@ -1491,10 +1417,7 @@ class EbayService: NSObject, ObservableObject {
             }
         }
         
-        let validItems = soldItems.filter { $0.price > 0 && !$0.title.isEmpty }
-        print("📊 Final result: \(validItems.count) valid sold items")
-        
-        return validItems
+        return soldItems.filter { $0.price > 0 && !$0.title.isEmpty }
     }
     
     private func parseIndividualProduct(_ product: [String: Any]) -> EbaySoldItem? {
@@ -1622,70 +1545,6 @@ class EbayService: NSObject, ObservableObject {
                 clearTokens()
             }
         }
-    }
-    
-    // MARK: - DEBUG AND RESET METHODS
-    func clearAllEbayData() {
-        print("🧹 Clearing all eBay OAuth data...")
-        clearTokens()
-        
-        // Clear any cached authentication sessions
-        authSession?.cancel()
-        authSession = nil
-        
-        // Clear UserDefaults completely
-        let keys = ["EbayAccessToken", "EbayRefreshToken", "EbayTokenSaveDate", "EbayAuthSession", "EbayLastAuth"]
-        for key in keys {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        
-        // Reset status
-        DispatchQueue.main.async {
-            self.isAuthenticated = false
-            self.authStatus = "Reset - Ready to authenticate"
-        }
-        
-        print("✅ All eBay data cleared - fresh start!")
-    }
-    
-    func debugEbayConfiguration() -> String {
-        let config = """
-        🧪 eBay OAuth Debug Information:
-        
-        📊 CURRENT STATUS:
-        • Authenticated: \(isAuthenticated)
-        • Auth Status: \(authStatus)
-        • Access Token: \(accessToken != nil ? "Present" : "Missing")
-        • Refresh Token: \(refreshToken != nil ? "Present" : "Missing")
-        
-        🔧 CONFIGURATION:
-        • App ID: \(Configuration.ebayAPIKey)
-        • Environment: \(Configuration.ebayEnvironment)
-        • RuName: \(Configuration.ebayRuName)
-        
-        🌐 OAUTH URL:
-        \(buildWorkingEbayOAuthURL())
-        
-        🎯 EXPECTED FLOW:
-        1. App opens eBay OAuth URL ✅
-        2. User logs in to eBay ✅  
-        3. eBay redirects to RuName ❓
-        4. RuName redirects to: https://resellaiapp.com/success.html ❓
-        5. Success page redirects to: resellai://auth/ebay ❓
-        6. App receives authorization code ❌
-        
-        ⚠️ DIAGNOSIS:
-        If step 3-4 fails, check eBay Developer Console RuName configuration.
-        If OAuth completes but no redirect, RuName Accept URL needs updating.
-        
-        🛠️ NEXT STEPS:
-        1. Clear OAuth data and retry
-        2. Verify RuName configuration in eBay Developer Console
-        3. Test success page directly: https://resellaiapp.com/success.html?code=test123
-        4. Consider backend OAuth handling for production apps
-        """
-        
-        return config
     }
     
     private func clearTokens() {
@@ -1833,16 +1692,20 @@ class GoogleSheetsService: ObservableObject {
     }
 }
 
-// MARK: - INVENTORY MANAGER
+// MARK: - INVENTORY MANAGER WITH FIREBASE INTEGRATION
 class InventoryManager: ObservableObject {
     @Published var items: [InventoryItem] = []
     
     private let userDefaults = UserDefaults.standard
     private let itemsKey = "SavedInventoryItems"
-    private let migrationKey = "DataMigrationV8_Completed"
+    private let migrationKey = "DataMigrationV9_Completed"
     private let categoryCountersKey = "CategoryCounters"
     
     @Published var categoryCounters: [String: Int] = [:]
+    
+    // Firebase integration
+    private weak var firebaseService: FirebaseService?
+    private let db = Firestore.firestore()
     
     init() {
         performDataMigrationIfNeeded()
@@ -1850,13 +1713,59 @@ class InventoryManager: ObservableObject {
         loadItems()
     }
     
+    func initialize(with firebaseService: FirebaseService) {
+        self.firebaseService = firebaseService
+        print("📱 InventoryManager initialized with Firebase")
+        
+        // Load items from Firebase if authenticated
+        if firebaseService.isAuthenticated {
+            loadItemsFromFirebase()
+        }
+    }
+    
     private func performDataMigrationIfNeeded() {
         if !userDefaults.bool(forKey: migrationKey) {
-            print("🔄 Performing data migration V8...")
+            print("🔄 Performing data migration V9...")
             userDefaults.removeObject(forKey: itemsKey)
             userDefaults.removeObject(forKey: categoryCountersKey)
             userDefaults.set(true, forKey: migrationKey)
-            print("✅ Data migration V8 completed")
+            print("✅ Data migration V9 completed")
+        }
+    }
+    
+    private func loadItemsFromFirebase() {
+        firebaseService?.loadUserInventory { [weak self] firebaseItems in
+            DispatchQueue.main.async {
+                // Convert Firebase items to local items
+                let localItems = firebaseItems.map { firebaseItem in
+                    InventoryItem(
+                        itemNumber: firebaseItem.itemNumber,
+                        name: firebaseItem.name,
+                        category: firebaseItem.category,
+                        purchasePrice: firebaseItem.purchasePrice,
+                        suggestedPrice: firebaseItem.suggestedPrice,
+                        source: firebaseItem.source,
+                        condition: firebaseItem.condition,
+                        title: firebaseItem.title,
+                        description: firebaseItem.description,
+                        keywords: firebaseItem.keywords,
+                        status: ItemStatus(rawValue: firebaseItem.status) ?? .sourced,
+                        dateAdded: firebaseItem.dateAdded,
+                        actualPrice: firebaseItem.actualPrice,
+                        dateListed: firebaseItem.dateListed,
+                        dateSold: firebaseItem.dateSold,
+                        ebayURL: firebaseItem.ebayURL,
+                        brand: firebaseItem.brand,
+                        storageLocation: firebaseItem.storageLocation,
+                        binNumber: firebaseItem.binNumber,
+                        isPackaged: firebaseItem.isPackaged,
+                        packagedDate: firebaseItem.packagedDate
+                    )
+                }
+                
+                self?.items = localItems
+                print("✅ Loaded \(localItems.count) items from Firebase")
+            }
         }
     }
     
@@ -1916,6 +1825,12 @@ class InventoryManager: ObservableObject {
         
         items.append(updatedItem)
         saveItems()
+        
+        // Sync to Firebase
+        firebaseService?.syncInventoryItem(updatedItem) { success in
+            print(success ? "✅ Item synced to Firebase" : "❌ Failed to sync item to Firebase")
+        }
+        
         print("✅ Added item: \(updatedItem.name) [\(updatedItem.inventoryCode)]")
         
         return updatedItem
@@ -1925,6 +1840,12 @@ class InventoryManager: ObservableObject {
         if let index = items.firstIndex(where: { $0.id == updatedItem.id }) {
             items[index] = updatedItem
             saveItems()
+            
+            // Sync to Firebase
+            firebaseService?.syncInventoryItem(updatedItem) { success in
+                print(success ? "✅ Item updated in Firebase" : "❌ Failed to update item in Firebase")
+            }
+            
             print("✅ Updated item: \(updatedItem.name)")
         }
     }

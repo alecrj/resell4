@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with eBay Integration
+//  Complete Reselling Automation with Firebase Integration
 //
 
 import SwiftUI
@@ -11,47 +11,63 @@ import AVFoundation
 import PhotosUI
 import MessageUI
 
-// MARK: - MAIN CONTENT VIEW
+// MARK: - MAIN CONTENT VIEW WITH FIREBASE
 struct ContentView: View {
+    @StateObject private var firebaseService = FirebaseService()
     @StateObject private var inventoryManager = InventoryManager()
     @StateObject private var businessService = BusinessService()
     
     var body: some View {
-        VStack(spacing: 0) {
-            BusinessHeader()
-            BusinessTabView()
-                .environmentObject(inventoryManager)
-                .environmentObject(businessService)
+        Group {
+            if firebaseService.isAuthenticated {
+                AuthenticatedAppView()
+                    .environmentObject(firebaseService)
+                    .environmentObject(inventoryManager)
+                    .environmentObject(businessService)
+            } else {
+                FirebaseAuthView()
+                    .environmentObject(firebaseService)
+            }
         }
         .onAppear {
             Configuration.validateConfiguration()
-            businessService.initialize()
+            
+            // Initialize services with Firebase
+            businessService.initialize(with: firebaseService)
+            inventoryManager.initialize(with: firebaseService)
         }
         .onOpenURL { url in
             print("📱 App received URL: \(url)")
-            print("📱 Full URL string: \(url.absoluteString)")
-            print("📱 Scheme: \(url.scheme ?? "nil")")
-            print("📱 Host: \(url.host ?? "nil")")
-            print("📱 Path: \(url.path)")
-            print("📱 Query: \(url.query ?? "nil")")
             
             // Handle eBay OAuth callback
             if url.scheme == "resellai" && url.host == "auth" {
                 if url.path == "/ebay" || url.path.contains("ebay") {
                     print("✅ Processing eBay OAuth callback")
                     businessService.handleEbayAuthCallback(url: url)
-                } else {
-                    print("⚠️ Unknown auth path: \(url.path)")
                 }
-            } else {
-                print("⚠️ Unknown URL scheme: \(url.scheme ?? "nil") host: \(url.host ?? "nil")")
             }
         }
     }
 }
 
-// MARK: - BUSINESS HEADER
+// MARK: - AUTHENTICATED APP VIEW
+struct AuthenticatedAppView: View {
+    @EnvironmentObject var firebaseService: FirebaseService
+    @EnvironmentObject var inventoryManager: InventoryManager
+    @EnvironmentObject var businessService: BusinessService
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            BusinessHeader()
+            BusinessTabView()
+        }
+    }
+}
+
+// MARK: - BUSINESS HEADER WITH USER INFO
 struct BusinessHeader: View {
+    @EnvironmentObject var firebaseService: FirebaseService
+    
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -60,27 +76,37 @@ struct BusinessHeader: View {
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(.primary)
                     
-                    Text("Complete Reselling Automation")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.secondary)
+                    if let user = firebaseService.currentUser {
+                        Text("Welcome, \(user.displayName ?? "User")")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
                 }
                 
                 Spacer()
                 
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(Configuration.isFullyConfigured ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(Configuration.isFullyConfigured ? Color.green : Color.orange)
+                            .frame(width: 8, height: 8)
+                        
+                        Text(Configuration.isFullyConfigured ? "Ready" : "Setup")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Configuration.isFullyConfigured ? .green : .orange)
+                    }
                     
-                    Text(Configuration.isFullyConfigured ? "Ready" : "Setup")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Configuration.isFullyConfigured ? .green : .orange)
+                    if let user = firebaseService.currentUser {
+                        Text("\(firebaseService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill((Configuration.isFullyConfigured ? Color.green : Color.orange).opacity(0.1))
+                        .fill(Color(.systemGray6))
                 )
             }
             .padding(.horizontal, 20)
@@ -136,10 +162,11 @@ struct BusinessTabView: View {
     }
 }
 
-// MARK: - ANALYSIS VIEW (UPDATED WITH EBAY INTEGRATION)
+// MARK: - ANALYSIS VIEW WITH USAGE LIMITS
 struct AnalysisView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
+    @EnvironmentObject var firebaseService: FirebaseService
     
     @State private var capturedImages: [UIImage] = []
     @State private var showingCamera = false
@@ -148,6 +175,7 @@ struct AnalysisView: View {
     @State private var showingItemForm = false
     @State private var showingEbayAuth = false
     @State private var showingBarcodeLookup = false
+    @State private var showingUsageLimit = false
     @State private var scannedBarcode: String?
     @State private var isAnalyzing = false
     @State private var isCreatingListing = false
@@ -157,6 +185,19 @@ struct AnalysisView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
+                    // Usage status
+                    if let user = firebaseService.currentUser {
+                        UsageStatusCard(
+                            currentCount: firebaseService.monthlyAnalysisCount,
+                            limit: user.monthlyAnalysisLimit,
+                            plan: user.currentPlan,
+                            canAnalyze: firebaseService.canAnalyze,
+                            daysUntilReset: firebaseService.daysUntilReset
+                        ) {
+                            showingUsageLimit = true
+                        }
+                    }
+                    
                     if capturedImages.isEmpty {
                         // Camera section
                         CameraSection(
@@ -166,7 +207,7 @@ struct AnalysisView: View {
                             onAnalyze: analyzeImages,
                             hasPhotos: !capturedImages.isEmpty,
                             isAnalyzing: isAnalyzing,
-                            isConfigured: Configuration.isFullyConfigured,
+                            isConfigured: Configuration.isFullyConfigured && firebaseService.canAnalyze,
                             onReset: resetAnalysis
                         )
                     } else {
@@ -176,7 +217,7 @@ struct AnalysisView: View {
                         // Analysis button
                         AnalysisButton(
                             isAnalyzing: isAnalyzing,
-                            isConfigured: Configuration.isFullyConfigured,
+                            isConfigured: Configuration.isFullyConfigured && firebaseService.canAnalyze,
                             onAction: analyzeImages
                         )
                         
@@ -229,7 +270,9 @@ struct AnalysisView: View {
         .sheet(isPresented: $showingItemForm) {
             if let analysisResult = analysisResult {
                 ItemFormView(analysisResult: analysisResult) { item in
-                    let _ = inventoryManager.addItem(item)
+                    let addedItem = inventoryManager.addItem(item)
+                    // Sync to Firebase
+                    firebaseService.syncInventoryItem(addedItem) { _ in }
                     resetAnalysis()
                 }
             }
@@ -240,18 +283,19 @@ struct AnalysisView: View {
                 analyzeBarcodeItem(barcode)
             }
         }
-        .alert("eBay Authentication", isPresented: $showingEbayAuth) {
-            Button("Cancel", role: .cancel) { }
-            Button("Open eBay") {
-                authenticateEbay()
-            }
-        } message: {
-            Text("Connect your eBay account to automatically create listings")
+        .sheet(isPresented: $showingUsageLimit) {
+            UsageLimitView()
         }
     }
     
     private func analyzeImages() {
         guard !capturedImages.isEmpty else { return }
+        
+        // Check usage limits
+        if !firebaseService.canAnalyze {
+            showingUsageLimit = true
+            return
+        }
         
         isAnalyzing = true
         businessService.analyzeItem(capturedImages) { result in
@@ -263,6 +307,11 @@ struct AnalysisView: View {
     }
     
     private func analyzeBarcodeItem(_ barcode: String) {
+        if !firebaseService.canAnalyze {
+            showingUsageLimit = true
+            return
+        }
+        
         isAnalyzing = true
         businessService.analyzeBarcode(barcode, images: capturedImages) { result in
             DispatchQueue.main.async {
@@ -278,12 +327,9 @@ struct AnalysisView: View {
     }
     
     private func authenticateEbay() {
-        print("🔐 User requested eBay authentication")
         businessService.authenticateEbay { success in
             DispatchQueue.main.async {
-                if success {
-                    print("✅ eBay authentication successful")
-                } else {
+                if !success {
                     print("❌ eBay authentication failed")
                 }
             }
@@ -308,7 +354,7 @@ struct AnalysisView: View {
                         itemNumber: self.inventoryManager.nextItemNumber,
                         name: analysisResult.name,
                         category: analysisResult.category,
-                        purchasePrice: 0, // User can update later
+                        purchasePrice: 0,
                         suggestedPrice: analysisResult.suggestedPrice,
                         source: "Analysis",
                         condition: analysisResult.condition,
@@ -327,7 +373,10 @@ struct AnalysisView: View {
                         subcategory: analysisResult.subcategory ?? ""
                     )
                     
-                    let _ = self.inventoryManager.addItem(newItem)
+                    let addedItem = self.inventoryManager.addItem(newItem)
+                    
+                    // Sync to Firebase
+                    self.firebaseService.syncInventoryItem(addedItem) { _ in }
                     
                     // Auto-reset after successful listing
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
@@ -350,6 +399,74 @@ struct AnalysisView: View {
         scannedBarcode = nil
         listingStatus = ""
         isCreatingListing = false
+    }
+}
+
+// MARK: - USAGE STATUS CARD
+struct UsageStatusCard: View {
+    let currentCount: Int
+    let limit: Int
+    let plan: UserPlan
+    let canAnalyze: Bool
+    let daysUntilReset: Int
+    let onUpgrade: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Monthly Usage")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                Text(plan.displayName)
+                    .font(.caption)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.blue.opacity(0.2))
+                    .foregroundColor(.blue)
+                    .cornerRadius(8)
+            }
+            
+            HStack {
+                Text("\(currentCount) / \(limit)")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(canAnalyze ? .green : .red)
+                
+                Spacer()
+                
+                if !canAnalyze {
+                    Button("Upgrade", action: onUpgrade)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.blue)
+                        .cornerRadius(12)
+                }
+            }
+            
+            ProgressView(value: Double(currentCount), total: Double(limit))
+                .progressViewStyle(LinearProgressViewStyle(tint: canAnalyze ? .green : .red))
+            
+            if !canAnalyze {
+                Text("Monthly limit reached • Resets in \(daysUntilReset) days")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Resets in \(daysUntilReset) days")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemGray6))
+        )
     }
 }
 
@@ -392,37 +509,6 @@ struct CameraSection: View {
                     color: .orange,
                     action: onBarcode
                 )
-            }
-            
-            if hasPhotos {
-                Button(action: onAnalyze) {
-                    HStack(spacing: 8) {
-                        if isAnalyzing {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                .scaleEffect(0.8)
-                            Text("Analyzing...")
-                        } else {
-                            Image(systemName: "brain.head.profile")
-                            Text("Analyze Item")
-                        }
-                    }
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(isConfigured ? Color.accentColor : Color.gray)
-                    )
-                }
-                .disabled(isAnalyzing || !isConfigured)
-                
-                if !isAnalyzing {
-                    Button("Start Over", action: onReset)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.secondary)
-                }
             }
         }
     }
@@ -542,7 +628,7 @@ struct AnalysisProgress: View {
     }
 }
 
-// MARK: - ANALYSIS RESULT VIEW (UPDATED WITH EBAY FEATURES)
+// MARK: - ANALYSIS RESULT VIEW WITH EBAY FEATURES
 struct AnalysisResultView: View {
     let analysis: AnalysisResult
     let images: [UIImage]
@@ -675,7 +761,7 @@ struct EbayIntegrationCard: View {
     }
 }
 
-// MARK: - ITEM IDENTIFICATION CARD
+// MARK: - OTHER CARDS (ItemIdentificationCard, MarketAnalysisCard, PricingCard remain the same)
 struct ItemIdentificationCard: View {
     let analysis: AnalysisResult
     
@@ -723,7 +809,6 @@ struct ItemIdentificationCard: View {
     }
 }
 
-// MARK: - MARKET ANALYSIS CARD
 struct MarketAnalysisCard: View {
     let analysis: AnalysisResult
     
@@ -780,7 +865,6 @@ struct MarketAnalysisCard: View {
     }
 }
 
-// MARK: - MARKET STAT
 struct MarketStat: View {
     let title: String
     let value: String
@@ -801,7 +885,6 @@ struct MarketStat: View {
     }
 }
 
-// MARK: - PRICING CARD
 struct PricingCard: View {
     let analysis: AnalysisResult
     
@@ -843,7 +926,6 @@ struct PricingCard: View {
     }
 }
 
-// MARK: - PRICE OPTION
 struct PriceOption: View {
     let title: String
     let price: Double
@@ -886,15 +968,23 @@ struct PriceOption: View {
     }
 }
 
-// MARK: - DASHBOARD VIEW
+// MARK: - DASHBOARD VIEW WITH FIREBASE
 struct DashboardView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
+    @EnvironmentObject var firebaseService: FirebaseService
     
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
+                    // User plan status
+                    if let user = firebaseService.currentUser {
+                        UserPlanCard(user: user) {
+                            // Show plan upgrade view
+                        }
+                    }
+                    
                     // eBay Integration Status
                     EbayStatusCard(isAuthenticated: businessService.isEbayAuthenticated)
                     
@@ -914,7 +1004,50 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - EBAY STATUS CARD
+// MARK: - USER PLAN CARD
+struct UserPlanCard: View {
+    let user: FirebaseUser
+    let onUpgrade: () -> Void
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Current Plan")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Text(user.currentPlan.displayName)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.blue)
+                
+                Text(user.currentPlan.price)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            if user.currentPlan != .pro {
+                Button("Upgrade", action: onUpgrade)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.blue)
+                    .cornerRadius(12)
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemGray6))
+        )
+    }
+}
+
+// MARK: - REMAINING DASHBOARD COMPONENTS (EbayStatusCard, DashboardStats, etc. remain the same)
 struct EbayStatusCard: View {
     let isAuthenticated: Bool
     
@@ -951,7 +1084,6 @@ struct EbayStatusCard: View {
     }
 }
 
-// MARK: - DASHBOARD STATS
 struct DashboardStats: View {
     let inventoryManager: InventoryManager
     
@@ -991,7 +1123,6 @@ struct DashboardStats: View {
     }
 }
 
-// MARK: - STAT CARD
 struct StatCard: View {
     let title: String
     let value: String
@@ -1017,7 +1148,6 @@ struct StatCard: View {
     }
 }
 
-// MARK: - RECENT ITEMS CARD
 struct RecentItemsCard: View {
     let items: [InventoryItem]
     
@@ -1046,7 +1176,6 @@ struct RecentItemsCard: View {
     }
 }
 
-// MARK: - RECENT ITEM ROW
 struct RecentItemRow: View {
     let item: InventoryItem
     
@@ -1079,7 +1208,6 @@ struct RecentItemRow: View {
     }
 }
 
-// MARK: - QUICK ACTIONS CARD
 struct QuickActionsCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1092,25 +1220,19 @@ struct QuickActionsCard: View {
                     title: "Analyze New Item",
                     icon: "viewfinder",
                     color: .blue
-                ) {
-                    // Navigate to analysis tab
-                }
+                ) { }
                 
                 QuickActionButton(
                     title: "View Inventory",
                     icon: "list.bullet",
                     color: .green
-                ) {
-                    // Navigate to inventory tab
-                }
+                ) { }
                 
                 QuickActionButton(
                     title: "Export Data",
                     icon: "square.and.arrow.up",
                     color: .purple
-                ) {
-                    // Show export options
-                }
+                ) { }
             }
         }
         .padding()
@@ -1121,7 +1243,6 @@ struct QuickActionsCard: View {
     }
 }
 
-// MARK: - QUICK ACTION BUTTON
 struct QuickActionButton: View {
     let title: String
     let icon: String
@@ -1155,7 +1276,7 @@ struct QuickActionButton: View {
     }
 }
 
-// MARK: - INVENTORY VIEW
+// MARK: - INVENTORY VIEW (remains largely the same)
 struct InventoryView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     
@@ -1181,7 +1302,6 @@ struct InventoryView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Search and filters
                 VStack(spacing: 12) {
                     SearchBar(text: $searchText)
                     
@@ -1209,7 +1329,6 @@ struct InventoryView: View {
                 .padding(.vertical, 12)
                 .background(Color(.systemGray6))
                 
-                // Items list
                 if filteredItems.isEmpty {
                     EmptyInventoryView()
                 } else {
@@ -1245,7 +1364,6 @@ struct InventoryView: View {
     }
 }
 
-// MARK: - SEARCH BAR
 struct SearchBar: View {
     @Binding var text: String
     
@@ -1274,7 +1392,6 @@ struct SearchBar: View {
     }
 }
 
-// MARK: - FILTER CHIP
 struct FilterChip: View {
     let title: String
     let isSelected: Bool
@@ -1296,13 +1413,11 @@ struct FilterChip: View {
     }
 }
 
-// MARK: - INVENTORY ITEM ROW
 struct InventoryItemRow: View {
     let item: InventoryItem
     
     var body: some View {
         HStack(spacing: 12) {
-            // Item image placeholder
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(.systemGray5))
                 .frame(width: 60, height: 60)
@@ -1311,7 +1426,6 @@ struct InventoryItemRow: View {
                         .foregroundColor(.secondary)
                 )
             
-            // Item details
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.name)
                     .font(.subheadline)
@@ -1329,7 +1443,6 @@ struct InventoryItemRow: View {
             
             Spacer()
             
-            // Price and status
             VStack(alignment: .trailing, spacing: 4) {
                 Text("$\(Int(item.suggestedPrice))")
                     .font(.subheadline)
@@ -1351,7 +1464,6 @@ struct InventoryItemRow: View {
     }
 }
 
-// MARK: - EMPTY INVENTORY VIEW
 struct EmptyInventoryView: View {
     var body: some View {
         VStack(spacing: 16) {
@@ -1373,7 +1485,7 @@ struct EmptyInventoryView: View {
     }
 }
 
-// MARK: - STORAGE VIEW
+// MARK: - STORAGE VIEW (remains the same)
 struct StorageView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     
@@ -1391,7 +1503,6 @@ struct StorageView: View {
     }
 }
 
-// MARK: - STORAGE OVERVIEW
 struct StorageOverview: View {
     let inventoryManager: InventoryManager
     
@@ -1430,7 +1541,6 @@ struct StorageOverview: View {
     }
 }
 
-// MARK: - STORAGE BY CATEGORY
 struct StorageByCategory: View {
     let inventoryManager: InventoryManager
     
@@ -1456,7 +1566,6 @@ struct StorageByCategory: View {
     }
 }
 
-// MARK: - CATEGORY STORAGE CARD
 struct CategoryStorageCard: View {
     let overview: (letter: String, category: String, count: Int, items: [InventoryItem])
     
@@ -1486,18 +1595,48 @@ struct CategoryStorageCard: View {
     }
 }
 
-// MARK: - SETTINGS VIEW
+// MARK: - SETTINGS VIEW WITH FIREBASE
 struct SettingsView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
+    @EnvironmentObject var firebaseService: FirebaseService
     
     @State private var showingExport = false
     @State private var showingAPIConfig = false
     @State private var showingAbout = false
+    @State private var showingPlanFeatures = false
     
     var body: some View {
         NavigationView {
             List {
+                Section("Account") {
+                    if let user = firebaseService.currentUser {
+                        HStack {
+                            Text("Signed in as")
+                            Spacer()
+                            Text(user.displayName ?? user.email ?? "User")
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        HStack {
+                            Text("Current Plan")
+                            Spacer()
+                            Text(user.currentPlan.displayName)
+                                .foregroundColor(.blue)
+                        }
+                        
+                        Button("View Plans") {
+                            showingPlanFeatures = true
+                        }
+                        .foregroundColor(.blue)
+                        
+                        Button("Sign Out") {
+                            firebaseService.signOut()
+                        }
+                        .foregroundColor(.red)
+                    }
+                }
+                
                 Section("eBay Integration") {
                     HStack {
                         Label("eBay Status", systemImage: "network")
@@ -1541,13 +1680,6 @@ struct SettingsView: View {
                         showingAbout = true
                     }
                 }
-                
-                Section("Data") {
-                    Button("Clear All Data") {
-                        // Implement clear data functionality
-                    }
-                    .foregroundColor(.red)
-                }
             }
             .navigationTitle("Settings")
         }
@@ -1561,10 +1693,13 @@ struct SettingsView: View {
         .sheet(isPresented: $showingAbout) {
             AboutView()
         }
+        .sheet(isPresented: $showingPlanFeatures) {
+            PlanFeaturesView()
+                .environmentObject(firebaseService)
+        }
     }
 }
 
-// MARK: - SETTINGS ROW
 struct SettingsRow: View {
     let title: String
     let icon: String
@@ -1591,8 +1726,7 @@ struct SettingsRow: View {
     }
 }
 
-// MARK: - SUPPORTING VIEWS (Placeholder implementations)
-
+// MARK: - SUPPORTING VIEWS (Camera, Photo Library, etc. remain the same)
 struct ResellAICameraView: UIViewControllerRepresentable {
     let completion: ([UIImage]) -> Void
     
@@ -1687,7 +1821,6 @@ struct ResellAIBarcodeScannerView: View {
             .padding()
         }
         .onAppear {
-            // In production, implement actual barcode scanning
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 completion("123456789")
             }
@@ -1756,7 +1889,7 @@ struct ItemFormView: View {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
                         let item = InventoryItem(
-                            itemNumber: 1, // Will be set by inventory manager
+                            itemNumber: 1,
                             name: analysisResult.name,
                             category: analysisResult.category,
                             purchasePrice: Double(purchasePrice) ?? 0,
@@ -1836,7 +1969,6 @@ struct ExportView: View {
                 Button("Export as CSV") {
                     let csv = inventoryManager.exportToCSV()
                     print("CSV Export: \(csv)")
-                    // In production, implement file sharing
                 }
                 .buttonStyle(.borderedProminent)
                 
@@ -2026,19 +2158,6 @@ struct SecondaryButtonStyle: ButtonStyle {
                     .stroke(Color.accentColor, lineWidth: 2)
             )
             .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
-    }
-}
-
-// MARK: - EXTENSIONS
-extension ItemStatus {
-    var statusColor: Color {
-        switch self {
-        case .toList: return .blue
-        case .listed: return .green
-        case .sold: return .purple
-        case .photographed: return .orange
-        case .sourced: return .gray
-        }
     }
 }
 

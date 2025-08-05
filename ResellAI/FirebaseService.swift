@@ -1,23 +1,20 @@
 //
-//  FirebaseUser.swift
-//  ResellAI
-//
-//  Created by Alec on 8/5/25.
-//
-
-
-//
 //  FirebaseService.swift
 //  ResellAI
 //
-//  Complete Firebase Backend Integration
+//  Complete Firebase Backend Integration with Real Firebase SDK
 //
 
 import SwiftUI
 import Foundation
+import FirebaseCore
+import FirebaseAuth
+import FirebaseFirestore
+import AuthenticationServices
+import CryptoKit
 
 // MARK: - FIREBASE MODELS
-struct FirebaseUser: Codable {
+struct FirebaseUser: Codable, Identifiable {
     let id: String
     let email: String?
     let displayName: String?
@@ -57,11 +54,31 @@ struct FirebaseUser: Codable {
         self.ebayUserId = nil
         self.ebayTokenExpiry = nil
     }
+    
+    // Initialize from Firebase Auth User
+    init(from authUser: User) {
+        self.id = authUser.uid
+        self.email = authUser.email
+        self.displayName = authUser.displayName
+        self.photoURL = authUser.photoURL?.absoluteString
+        self.provider = authUser.providerData.first?.providerID == "apple.com" ? "apple" : "email"
+        self.createdAt = authUser.metadata.creationDate ?? Date()
+        self.lastLoginAt = authUser.metadata.lastSignInDate ?? Date()
+        
+        // Default values for new users
+        self.currentPlan = .free
+        self.monthlyAnalysisCount = 0
+        self.monthlyAnalysisLimit = 10
+        self.subscriptionStatus = .free
+        self.hasEbayConnected = false
+        self.ebayUserId = nil
+        self.ebayTokenExpiry = nil
+    }
 }
 
 enum UserPlan: String, CaseIterable, Codable {
     case free = "free"
-    case starter = "starter" 
+    case starter = "starter"
     case pro = "pro"
     
     var displayName: String {
@@ -108,7 +125,7 @@ enum SubscriptionStatus: String, Codable {
     case trial = "trial"
 }
 
-struct FirebaseInventoryItem: Codable {
+struct FirebaseInventoryItem: Codable, Identifiable {
     let id: String
     let userId: String
     let itemNumber: Int
@@ -160,7 +177,7 @@ struct UsageRecord: Codable {
     let metadata: [String: String] // Additional context
 }
 
-// MARK: - FIREBASE SERVICE
+// MARK: - FIREBASE SERVICE WITH REAL FIREBASE SDK
 class FirebaseService: ObservableObject {
     @Published var currentUser: FirebaseUser?
     @Published var isAuthenticated = false
@@ -172,50 +189,113 @@ class FirebaseService: ObservableObject {
     @Published var canAnalyze = true
     @Published var daysUntilReset = 0
     
+    // Firebase instances
+    private let auth = Auth.auth()
+    private let db = Firestore.firestore()
+    
+    // Apple Sign In
+    private var currentNonce: String?
+    
     init() {
         print("🔥 Firebase Service initialized")
-        // In production, initialize Firebase SDK here
-        loadCurrentUser()
+        configureFirebase()
+        setupAuthStateListener()
     }
     
-    // MARK: - AUTHENTICATION
-    func signInWithApple(completion: @escaping (Bool) -> Void) {
-        print("🍎 Starting Apple Sign-In...")
-        isLoading = true
-        
-        // Simulate Apple Sign-In for now
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            let user = FirebaseUser(
-                id: "apple_\(UUID().uuidString)",
-                email: "user@privaterelay.appleid.com",
-                displayName: "ResellAI User", 
-                provider: "apple"
-            )
-            
-            self.handleSuccessfulAuth(user: user)
-            completion(true)
+    private func configureFirebase() {
+        // Firebase should be configured in App delegate, but we'll check here
+        if FirebaseApp.app() == nil {
+            print("⚠️ Firebase not configured - run FirebaseApp.configure() in App delegate")
+        } else {
+            print("✅ Firebase configured successfully")
         }
     }
     
+    private func setupAuthStateListener() {
+        auth.addStateDidChangeListener { [weak self] _, user in
+            DispatchQueue.main.async {
+                if let user = user {
+                    print("✅ Firebase Auth state: User signed in - \(user.uid)")
+                    self?.handleAuthenticatedUser(user)
+                } else {
+                    print("📱 Firebase Auth state: No user signed in")
+                    self?.handleSignedOutUser()
+                }
+            }
+        }
+    }
+    
+    private func handleAuthenticatedUser(_ user: User) {
+        isAuthenticated = true
+        isLoading = false
+        
+        // Load user data from Firestore
+        loadUserData(userId: user.uid) { [weak self] firebaseUser in
+            DispatchQueue.main.async {
+                if let firebaseUser = firebaseUser {
+                    self?.currentUser = firebaseUser
+                } else {
+                    // Create new user record
+                    let newUser = FirebaseUser(from: user)
+                    self?.currentUser = newUser
+                    self?.createUserDocument(newUser)
+                }
+                
+                self?.loadMonthlyUsage()
+                print("✅ User loaded: \(self?.currentUser?.displayName ?? "Unknown")")
+            }
+        }
+    }
+    
+    private func handleSignedOutUser() {
+        currentUser = nil
+        isAuthenticated = false
+        isLoading = false
+        monthlyAnalysisCount = 0
+        canAnalyze = true
+        authError = nil
+    }
+    
+    // MARK: - APPLE SIGN IN WITH FIREBASE
+    func signInWithApple() {
+        print("🍎 Starting Apple Sign-In with Firebase...")
+        isLoading = true
+        authError = nil
+        
+        let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.fullName, .email]
+        
+        // Generate nonce for security
+        let nonce = randomNonceString()
+        currentNonce = nonce
+        request.nonce = sha256(nonce)
+        
+        let authorizationController = ASAuthorizationController(authorizationRequests: [request])
+        authorizationController.delegate = self
+        authorizationController.presentationContextProvider = self
+        authorizationController.performRequests()
+    }
+    
+    // MARK: - EMAIL AUTHENTICATION
     func signInWithEmail(_ email: String, password: String, completion: @escaping (Bool, String?) -> Void) {
         print("📧 Signing in with email: \(email)")
         isLoading = true
+        authError = nil
         
-        // Simulate email sign-in
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            if email.contains("@") && password.count >= 6 {
-                let user = FirebaseUser(
-                    id: "email_\(UUID().uuidString)",
-                    email: email,
-                    displayName: email.components(separatedBy: "@").first?.capitalized,
-                    provider: "email"
-                )
+        auth.signIn(withEmail: email, password: password) { [weak self] result, error in
+            DispatchQueue.main.async {
+                self?.isLoading = false
                 
-                self.handleSuccessfulAuth(user: user)
-                completion(true, nil)
-            } else {
-                self.isLoading = false
-                completion(false, "Invalid email or password")
+                if let error = error {
+                    let errorMessage = self?.parseAuthError(error) ?? "Sign in failed"
+                    self?.authError = errorMessage
+                    completion(false, errorMessage)
+                    print("❌ Email sign in failed: \(errorMessage)")
+                } else {
+                    print("✅ Email sign in successful")
+                    self?.trackUsage(action: "email_sign_in")
+                    completion(true, nil)
+                }
             }
         }
     }
@@ -223,84 +303,101 @@ class FirebaseService: ObservableObject {
     func createAccount(email: String, password: String, completion: @escaping (Bool, String?) -> Void) {
         print("✨ Creating account for: \(email)")
         isLoading = true
+        authError = nil
         
-        // Simulate account creation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            let user = FirebaseUser(
-                id: "new_\(UUID().uuidString)",
-                email: email,
-                displayName: email.components(separatedBy: "@").first?.capitalized,
-                provider: "email"
-            )
-            
-            self.handleSuccessfulAuth(user: user)
-            self.trackUsage(action: "account_created")
-            completion(true, nil)
-        }
-    }
-    
-    private func handleSuccessfulAuth(user: FirebaseUser) {
-        DispatchQueue.main.async {
-            self.currentUser = user
-            self.isAuthenticated = true
-            self.isLoading = false
-            self.authError = nil
-            
-            self.saveUserLocally(user)
-            self.syncUserToFirestore(user)
-            self.loadMonthlyUsage()
-            
-            print("✅ User authenticated: \(user.displayName ?? user.email ?? "Unknown")")
+        auth.createUser(withEmail: email, password: password) { [weak self] result, error in
+            DispatchQueue.main.async {
+                self?.isLoading = false
+                
+                if let error = error {
+                    let errorMessage = self?.parseAuthError(error) ?? "Account creation failed"
+                    self?.authError = errorMessage
+                    completion(false, errorMessage)
+                    print("❌ Account creation failed: \(errorMessage)")
+                } else {
+                    print("✅ Account created successfully")
+                    self?.trackUsage(action: "account_created")
+                    completion(true, nil)
+                }
+            }
         }
     }
     
     func signOut() {
         print("👋 Signing out user")
-        currentUser = nil
-        isAuthenticated = false
-        monthlyAnalysisCount = 0
-        canAnalyze = true
-        clearLocalUserData()
-    }
-    
-    // MARK: - USER DATA MANAGEMENT
-    private func saveUserLocally(_ user: FirebaseUser) {
         do {
-            let data = try JSONEncoder().encode(user)
-            UserDefaults.standard.set(data, forKey: "firebase_user")
-            print("💾 User saved locally")
+            try auth.signOut()
+            // handleSignedOutUser() will be called by auth state listener
         } catch {
-            print("❌ Error saving user locally: \(error)")
+            print("❌ Sign out error: \(error)")
         }
     }
     
-    private func loadCurrentUser() {
-        guard let data = UserDefaults.standard.data(forKey: "firebase_user") else {
-            print("📱 No local user found")
-            return
+    // MARK: - FIRESTORE USER MANAGEMENT
+    private func loadUserData(userId: String, completion: @escaping (FirebaseUser?) -> Void) {
+        db.collection("users").document(userId).getDocument { snapshot, error in
+            if let error = error {
+                print("❌ Error loading user data: \(error)")
+                completion(nil)
+                return
+            }
+            
+            guard let data = snapshot?.data() else {
+                print("📱 No user document found")
+                completion(nil)
+                return
+            }
+            
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: data)
+                let user = try JSONDecoder().decode(FirebaseUser.self, from: jsonData)
+                print("✅ User data loaded from Firestore")
+                completion(user)
+            } catch {
+                print("❌ Error decoding user data: \(error)")
+                completion(nil)
+            }
         }
+    }
+    
+    private func createUserDocument(_ user: FirebaseUser) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
         
         do {
-            let user = try JSONDecoder().decode(FirebaseUser.self, from: data)
-            currentUser = user
-            isAuthenticated = true
-            loadMonthlyUsage()
-            print("📂 Loaded user from local storage: \(user.displayName ?? "Unknown")")
+            let data = try encoder.encode(user)
+            let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            
+            db.collection("users").document(user.id).setData(dict) { error in
+                if let error = error {
+                    print("❌ Error creating user document: \(error)")
+                } else {
+                    print("✅ User document created in Firestore")
+                }
+            }
         } catch {
-            print("❌ Error loading local user: \(error)")
-            clearLocalUserData()
+            print("❌ Error encoding user data: \(error)")
         }
     }
     
-    private func clearLocalUserData() {
-        UserDefaults.standard.removeObject(forKey: "firebase_user")
-        UserDefaults.standard.removeObject(forKey: "monthly_usage")
-    }
-    
-    private func syncUserToFirestore(_ user: FirebaseUser) {
-        print("☁️ Syncing user to Firestore...")
-        // In production: save to Firestore
-        // For now, just simulate success
+    private func updateUserDocument(_ user: FirebaseUser) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        
+        do {
+            let data = try encoder.encode(user)
+            let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            
+            db.collection("users").document(user.id).updateData(dict) { error in
+                if let error = error {
+                    print("❌ Error updating user document: \(error)")
+                } else {
+                    print("✅ User document updated in Firestore")
+                }
+            }
+        } catch {
+            print("❌ Error encoding user data for update: \(error)")
+        }
     }
     
     // MARK: - USAGE TRACKING & LIMITS
@@ -318,28 +415,61 @@ class FirebaseService: ObservableObject {
         
         print("📊 Tracking usage: \(action)")
         
+        // Update local count
         if action == "analysis" {
             monthlyAnalysisCount += 1
             updateAnalysisLimit()
-            saveMonthlyUsage()
+            
+            // Update user document with new count
+            var updatedUser = user
+            // Note: We need to create a mutable copy properly
+            // For now, we'll update the document directly
+            updateUserUsageCount()
         }
         
-        // In production: save to Firestore
+        // Save usage record to Firestore
         saveUsageToFirestore(usage)
     }
     
-    private func loadMonthlyUsage() {
-        let currentMonth = getCurrentMonth()
-        let savedCount = UserDefaults.standard.integer(forKey: "monthly_usage_\(currentMonth)")
-        monthlyAnalysisCount = savedCount
-        updateAnalysisLimit()
+    private func updateUserUsageCount() {
+        guard let user = currentUser else { return }
         
-        print("📈 Monthly usage loaded: \(monthlyAnalysisCount)")
+        db.collection("users").document(user.id).updateData([
+            "monthlyAnalysisCount": monthlyAnalysisCount,
+            "lastLoginAt": Timestamp()
+        ]) { error in
+            if let error = error {
+                print("❌ Error updating usage count: \(error)")
+            } else {
+                print("✅ Usage count updated in Firestore")
+            }
+        }
     }
     
-    private func saveMonthlyUsage() {
+    private func loadMonthlyUsage() {
+        guard let user = currentUser else { return }
+        
         let currentMonth = getCurrentMonth()
-        UserDefaults.standard.set(monthlyAnalysisCount, forKey: "monthly_usage_\(currentMonth)")
+        
+        // Load from Firestore
+        db.collection("usage")
+            .whereField("userId", isEqualTo: user.id)
+            .whereField("month", isEqualTo: currentMonth)
+            .whereField("action", isEqualTo: "analysis")
+            .getDocuments { [weak self] snapshot, error in
+                if let error = error {
+                    print("❌ Error loading monthly usage: \(error)")
+                    return
+                }
+                
+                let count = snapshot?.documents.count ?? 0
+                
+                DispatchQueue.main.async {
+                    self?.monthlyAnalysisCount = count
+                    self?.updateAnalysisLimit()
+                    print("📈 Monthly usage loaded: \(count)")
+                }
+            }
     }
     
     private func updateAnalysisLimit() {
@@ -363,8 +493,23 @@ class FirebaseService: ObservableObject {
     }
     
     private func saveUsageToFirestore(_ usage: UsageRecord) {
-        // In production: save to Firestore collection "usage"
-        print("☁️ Usage saved to Firestore: \(usage.action)")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        
+        do {
+            let data = try encoder.encode(usage)
+            let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            
+            db.collection("usage").document(usage.id).setData(dict) { error in
+                if let error = error {
+                    print("❌ Error saving usage to Firestore: \(error)")
+                } else {
+                    print("✅ Usage saved to Firestore: \(usage.action)")
+                }
+            }
+        } catch {
+            print("❌ Error encoding usage data: \(error)")
+        }
     }
     
     // MARK: - INVENTORY SYNC
@@ -408,14 +553,30 @@ class FirebaseService: ObservableObject {
             packagedDate: item.packagedDate,
             createdAt: Date(),
             updatedAt: Date(),
-            syncStatus: "pending"
+            syncStatus: "synced"
         )
         
         print("☁️ Syncing inventory item: \(item.name)")
         
-        // Simulate sync
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            completion(true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        
+        do {
+            let data = try encoder.encode(firebaseItem)
+            let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+            
+            db.collection("inventory").document(firebaseItem.id).setData(dict) { error in
+                if let error = error {
+                    print("❌ Error syncing inventory item: \(error)")
+                    completion(false)
+                } else {
+                    print("✅ Inventory item synced to Firestore")
+                    completion(true)
+                }
+            }
+        } catch {
+            print("❌ Error encoding inventory item: \(error)")
+            completion(false)
         }
     }
     
@@ -425,35 +586,83 @@ class FirebaseService: ObservableObject {
             return
         }
         
-        print("📥 Loading user inventory from Firebase...")
+        print("📥 Loading user inventory from Firestore...")
         
-        // In production: query Firestore for user's items
-        // For now, return empty array
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            completion([])
-        }
+        db.collection("inventory")
+            .whereField("userId", isEqualTo: user.id)
+            .order(by: "createdAt", descending: true)
+            .getDocuments { snapshot, error in
+                if let error = error {
+                    print("❌ Error loading inventory: \(error)")
+                    completion([])
+                    return
+                }
+                
+                guard let documents = snapshot?.documents else {
+                    completion([])
+                    return
+                }
+                
+                var items: [FirebaseInventoryItem] = []
+                
+                for doc in documents {
+                    do {
+                        let data = doc.data()
+                        let jsonData = try JSONSerialization.data(withJSONObject: data)
+                        let item = try JSONDecoder().decode(FirebaseInventoryItem.self, from: jsonData)
+                        items.append(item)
+                    } catch {
+                        print("❌ Error decoding inventory item: \(error)")
+                    }
+                }
+                
+                print("✅ Loaded \(items.count) inventory items from Firestore")
+                completion(items)
+            }
     }
     
     // MARK: - PLAN MANAGEMENT
     func upgradePlan(to plan: UserPlan, completion: @escaping (Bool) -> Void) {
-        guard var user = currentUser else {
+        guard let user = currentUser else {
             completion(false)
             return
         }
         
         print("⬆️ Upgrading to \(plan.displayName) plan")
         
-        // Update user plan (in production, handle via Stripe webhook)
-        let updatedUser = FirebaseUser(
-            id: user.id,
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            provider: user.provider
-        )
-        
-        // For now, just update locally
-        completion(true)
+        // Update user document with new plan
+        db.collection("users").document(user.id).updateData([
+            "currentPlan": plan.rawValue,
+            "monthlyAnalysisLimit": plan.monthlyLimit,
+            "subscriptionStatus": "active",
+            "lastLoginAt": Timestamp()
+        ]) { [weak self] error in
+            if let error = error {
+                print("❌ Error upgrading plan: \(error)")
+                completion(false)
+            } else {
+                print("✅ Plan upgraded successfully")
+                
+                // Update local user
+                if var updatedUser = self?.currentUser {
+                    // Create updated user with new plan
+                    let newUser = FirebaseUser(
+                        id: updatedUser.id,
+                        email: updatedUser.email,
+                        displayName: updatedUser.displayName,
+                        photoURL: updatedUser.photoURL,
+                        provider: updatedUser.provider
+                    )
+                    
+                    DispatchQueue.main.async {
+                        self?.currentUser = newUser
+                        self?.updateAnalysisLimit()
+                    }
+                }
+                
+                completion(true)
+            }
+        }
     }
     
     // MARK: - HELPER METHODS
@@ -478,14 +687,174 @@ class FirebaseService: ObservableObject {
         // For testing - resets usage
         monthlyAnalysisCount = 0
         updateAnalysisLimit()
-        saveMonthlyUsage()
         print("🔄 Monthly usage reset")
+    }
+    
+    // MARK: - ERROR HANDLING
+    private func parseAuthError(_ error: Error) -> String {
+        if let authError = error as NSError? {
+            switch authError.code {
+            case AuthErrorCode.emailAlreadyInUse.rawValue:
+                return "Email already in use"
+            case AuthErrorCode.invalidEmail.rawValue:
+                return "Invalid email address"
+            case AuthErrorCode.weakPassword.rawValue:
+                return "Password is too weak"
+            case AuthErrorCode.userNotFound.rawValue:
+                return "Account not found"
+            case AuthErrorCode.wrongPassword.rawValue:
+                return "Incorrect password"
+            case AuthErrorCode.networkError.rawValue:
+                return "Network error - check connection"
+            default:
+                return authError.localizedDescription
+            }
+        }
+        return error.localizedDescription
+    }
+}
+
+// MARK: - APPLE SIGN IN DELEGATE
+extension FirebaseService: ASAuthorizationControllerDelegate {
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        
+        if let appleIDCredential = authorization.credential as? ASAuthorizationAppleIDCredential {
+            
+            guard let nonce = currentNonce else {
+                print("❌ Invalid state: A login callback was received, but no login request was sent.")
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.authError = "Authentication failed"
+                }
+                return
+            }
+            
+            guard let appleIDToken = appleIDCredential.identityToken else {
+                print("❌ Unable to fetch identity token")
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.authError = "Unable to get identity token"
+                }
+                return
+            }
+            
+            guard let idTokenString = String(data: appleIDToken, encoding: .utf8) else {
+                print("❌ Unable to serialize token string from data")
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    self.authError = "Unable to serialize token"
+                }
+                return
+            }
+            
+            // Initialize a Firebase credential
+            let credential = OAuthProvider.credential(withProviderID: "apple.com",
+                                                      idToken: idTokenString,
+                                                      rawNonce: nonce)
+            
+            // Sign in with Firebase
+            auth.signIn(with: credential) { [weak self] result, error in
+                DispatchQueue.main.async {
+                    self?.isLoading = false
+                    
+                    if let error = error {
+                        let errorMessage = self?.parseAuthError(error) ?? "Apple Sign In failed"
+                        self?.authError = errorMessage
+                        print("❌ Apple Sign In failed: \(errorMessage)")
+                    } else {
+                        print("✅ Apple Sign In successful")
+                        self?.trackUsage(action: "apple_sign_in")
+                    }
+                }
+            }
+        }
+    }
+    
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
+        print("❌ Apple Sign In error: \(error)")
+        DispatchQueue.main.async {
+            self.isLoading = false
+            if let authError = error as? ASAuthorizationError {
+                switch authError.code {
+                case .canceled:
+                    self.authError = "Sign in was canceled"
+                case .failed:
+                    self.authError = "Apple Sign In failed"
+                case .invalidResponse:
+                    self.authError = "Invalid response from Apple"
+                case .notHandled:
+                    self.authError = "Sign in not handled"
+                case .unknown:
+                    self.authError = "Unknown Apple Sign In error"
+                @unknown default:
+                    self.authError = "Unknown Apple Sign In error"
+                }
+            } else {
+                self.authError = "Apple Sign In failed"
+            }
+        }
+    }
+}
+
+// MARK: - APPLE SIGN IN PRESENTATION CONTEXT
+extension FirebaseService: ASAuthorizationControllerPresentationContextProviding {
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else {
+            return ASPresentationAnchor()
+        }
+        return window
+    }
+}
+
+// MARK: - APPLE SIGN IN CRYPTO HELPERS
+extension FirebaseService {
+    private func randomNonceString(length: Int = 32) -> String {
+        precondition(length > 0)
+        let charset: [Character] =
+        Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+        var result = ""
+        var remainingLength = length
+        
+        while remainingLength > 0 {
+            let randoms: [UInt8] = (0..<16).map { _ in
+                var random: UInt8 = 0
+                let errorCode = SecRandomCopyBytes(kSecRandomDefault, 1, &random)
+                if errorCode != errSecSuccess {
+                    fatalError("Unable to generate nonce. SecRandomCopyBytes failed with OSStatus \(errorCode)")
+                }
+                return random
+            }
+            
+            randoms.forEach { random in
+                if remainingLength == 0 {
+                    return
+                }
+                
+                if random < charset.count {
+                    result.append(charset[Int(random)])
+                    remainingLength -= 1
+                }
+            }
+        }
+        
+        return result
+    }
+    
+    private func sha256(_ input: String) -> String {
+        let inputData = Data(input.utf8)
+        let hashedData = SHA256.hash(data: inputData)
+        let hashString = hashedData.compactMap {
+            String(format: "%02x", $0)
+        }.joined()
+        
+        return hashString
     }
 }
 
 // MARK: - FIREBASE AUTH VIEW
 struct FirebaseAuthView: View {
-    @StateObject private var firebaseService = FirebaseService()
+    @EnvironmentObject var firebaseService: FirebaseService
     @State private var showingSignUp = false
     @State private var email = ""
     @State private var password = ""
@@ -524,7 +893,7 @@ struct FirebaseAuthView: View {
                     VStack(spacing: 16) {
                         // Apple Sign-In
                         Button(action: {
-                            firebaseService.signInWithApple { _ in }
+                            firebaseService.signInWithApple()
                         }) {
                             HStack {
                                 Image(systemName: "applelogo")
@@ -616,9 +985,11 @@ struct FirebaseAuthView: View {
         } message: {
             Text(errorMessage)
         }
-        .fullScreenCover(isPresented: $firebaseService.isAuthenticated) {
-            ContentView()
-                .environmentObject(firebaseService)
+        .onChange(of: firebaseService.authError) { error in
+            if let error = error {
+                errorMessage = error
+                showingError = true
+            }
         }
     }
     
@@ -659,81 +1030,83 @@ struct UsageLimitView: View {
     @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        VStack(spacing: 24) {
-            // Limit reached icon
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 64))
-                .foregroundColor(.orange)
-            
-            Text("Monthly Limit Reached")
-                .font(.title)
-                .fontWeight(.bold)
-            
-            Text("You've used all \(firebaseService.currentUser?.monthlyAnalysisLimit ?? 0) AI analyses for this month.")
-                .multilineTextAlignment(.center)
-                .foregroundColor(.secondary)
-            
-            // Current plan info
-            if let user = firebaseService.currentUser {
-                VStack(spacing: 12) {
-                    Text("Current Plan: \(user.currentPlan.displayName)")
-                        .font(.headline)
-                    
-                    Text("Resets in \(firebaseService.daysUntilReset) days")
-                        .foregroundColor(.secondary)
-                }
-                .padding()
-                .background(Color(.systemGray6))
-                .cornerRadius(12)
-            }
-            
-            // Upgrade options
-            VStack(spacing: 16) {
-                Text("Upgrade for More Analyses")
-                    .font(.headline)
-                    .foregroundColor(.blue)
+        NavigationView {
+            VStack(spacing: 24) {
+                // Limit reached icon
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 64))
+                    .foregroundColor(.orange)
                 
-                ForEach(UserPlan.allCases.filter { $0 != .free }, id: \.self) { plan in
-                    Button(action: {
-                        upgradeToPlan(plan)
-                    }) {
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(plan.displayName)
-                                    .fontWeight(.semibold)
-                                
-                                Text("\(plan.monthlyLimit) analyses/month")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
-                            Spacer()
-                            
-                            Text(plan.price)
-                                .fontWeight(.bold)
-                                .foregroundColor(.blue)
-                        }
-                        .padding()
-                        .background(Color(.systemGray6))
-                        .cornerRadius(12)
+                Text("Monthly Limit Reached")
+                    .font(.title)
+                    .fontWeight(.bold)
+                
+                Text("You've used all \(firebaseService.currentUser?.monthlyAnalysisLimit ?? 0) AI analyses for this month.")
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.secondary)
+                
+                // Current plan info
+                if let user = firebaseService.currentUser {
+                    VStack(spacing: 12) {
+                        Text("Current Plan: \(user.currentPlan.displayName)")
+                            .font(.headline)
+                        
+                        Text("Resets in \(firebaseService.daysUntilReset) days")
+                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
                 }
-            }
-            
-            Button("Continue with Free Plan") {
-                dismiss()
-            }
-            .foregroundColor(.secondary)
-            
-            Spacer()
-        }
-        .padding(24)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("Close") {
+                
+                // Upgrade options
+                VStack(spacing: 16) {
+                    Text("Upgrade for More Analyses")
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                    
+                    ForEach(UserPlan.allCases.filter { $0 != .free }, id: \.self) { plan in
+                        Button(action: {
+                            upgradeToPlan(plan)
+                        }) {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(plan.displayName)
+                                        .fontWeight(.semibold)
+                                    
+                                    Text("\(plan.monthlyLimit) analyses/month")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Spacer()
+                                
+                                Text(plan.price)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.blue)
+                            }
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(12)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                
+                Button("Continue with Free Plan") {
                     dismiss()
+                }
+                .foregroundColor(.secondary)
+                
+                Spacer()
+            }
+            .padding(24)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Close") {
+                        dismiss()
+                    }
                 }
             }
         }
