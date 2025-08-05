@@ -507,7 +507,7 @@ class FirebaseService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - FIRESTORE USER MANAGEMENT
+    // MARK: - FIRESTORE USER MANAGEMENT (FIXED FOR TIMESTAMPS)
     private func loadUserData(userId: String, completion: @escaping (FirebaseUser?) -> Void) {
         db.collection("users").document(userId).getDocument { snapshot, error in
             if let error = error {
@@ -522,52 +522,93 @@ class FirebaseService: NSObject, ObservableObject {
                 return
             }
             
-            do {
-                let jsonData = try JSONSerialization.data(withJSONObject: data)
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .secondsSince1970
-                let user = try decoder.decode(FirebaseUser.self, from: jsonData)
+            // Convert Firestore data to FirebaseUser manually
+            if let user = self.parseFirebaseUser(from: data) {
                 print("✅ User data loaded from Firestore")
                 completion(user)
-            } catch {
-                print("❌ Error decoding user data: \(error)")
+            } else {
                 completion(nil)
             }
         }
     }
     
-    private func createUserDocument(_ user: FirebaseUser) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
+    private func parseFirebaseUser(from data: [String: Any]) -> FirebaseUser? {
+        guard let id = data["id"] as? String else { return nil }
         
-        do {
-            let data = try encoder.encode(user)
-            let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            
-            db.collection("users").document(user.id).setData(dict) { error in
-                if let error = error {
-                    print("❌ Error creating user document: \(error)")
-                } else {
-                    print("✅ User document created in Firestore")
-                }
+        let email = data["email"] as? String
+        let displayName = data["displayName"] as? String
+        let photoURL = data["photoURL"] as? String
+        let provider = data["provider"] as? String ?? "email"
+        
+        // Convert Timestamps to Dates
+        let createdAt = (data["createdAt"] as? Timestamp)?.dateValue() ?? Date()
+        let lastLoginAt = (data["lastLoginAt"] as? Timestamp)?.dateValue() ?? Date()
+        
+        let currentPlan = UserPlan(rawValue: data["currentPlan"] as? String ?? "free") ?? .free
+        let monthlyAnalysisCount = data["monthlyAnalysisCount"] as? Int ?? 0
+        let monthlyAnalysisLimit = data["monthlyAnalysisLimit"] as? Int ?? 10
+        let subscriptionStatus = SubscriptionStatus(rawValue: data["subscriptionStatus"] as? String ?? "free") ?? .free
+        
+        let hasEbayConnected = data["hasEbayConnected"] as? Bool ?? false
+        let ebayUserId = data["ebayUserId"] as? String
+        let ebayTokenExpiry = (data["ebayTokenExpiry"] as? Timestamp)?.dateValue()
+        
+        let hasFaceIDEnabled = data["hasFaceIDEnabled"] as? Bool ?? false
+        let lastFaceIDCheck = (data["lastFaceIDCheck"] as? Timestamp)?.dateValue()
+        
+        return FirebaseUser(
+            id: id,
+            email: email,
+            displayName: displayName,
+            photoURL: photoURL,
+            provider: provider,
+            createdAt: createdAt,
+            lastLoginAt: lastLoginAt,
+            currentPlan: currentPlan,
+            monthlyAnalysisCount: monthlyAnalysisCount,
+            monthlyAnalysisLimit: monthlyAnalysisLimit,
+            subscriptionStatus: subscriptionStatus,
+            hasEbayConnected: hasEbayConnected,
+            ebayUserId: ebayUserId,
+            ebayTokenExpiry: ebayTokenExpiry,
+            hasFaceIDEnabled: hasFaceIDEnabled,
+            lastFaceIDCheck: lastFaceIDCheck
+        )
+    }
+    
+    private func createUserDocument(_ user: FirebaseUser) {
+        // Convert FirebaseUser to Firestore-compatible dictionary manually
+        let userData: [String: Any] = [
+            "id": user.id,
+            "email": user.email ?? NSNull(),
+            "displayName": user.displayName ?? NSNull(),
+            "photoURL": user.photoURL ?? NSNull(),
+            "provider": user.provider,
+            "createdAt": Timestamp(date: user.createdAt),
+            "lastLoginAt": Timestamp(date: user.lastLoginAt),
+            "currentPlan": user.currentPlan.rawValue,
+            "monthlyAnalysisCount": user.monthlyAnalysisCount,
+            "monthlyAnalysisLimit": user.monthlyAnalysisLimit,
+            "subscriptionStatus": user.subscriptionStatus.rawValue,
+            "hasEbayConnected": user.hasEbayConnected,
+            "ebayUserId": user.ebayUserId ?? NSNull(),
+            "ebayTokenExpiry": user.ebayTokenExpiry != nil ? Timestamp(date: user.ebayTokenExpiry!) : NSNull(),
+            "hasFaceIDEnabled": user.hasFaceIDEnabled,
+            "lastFaceIDCheck": user.lastFaceIDCheck != nil ? Timestamp(date: user.lastFaceIDCheck!) : NSNull()
+        ]
+        
+        db.collection("users").document(user.id).setData(userData) { error in
+            if let error = error {
+                print("❌ Error creating user document: \(error)")
+            } else {
+                print("✅ User document created in Firestore")
             }
-        } catch {
-            print("❌ Error encoding user data: \(error)")
         }
     }
     
-    // MARK: - USAGE TRACKING & LIMITS
+    // MARK: - USAGE TRACKING & LIMITS (FIXED FOR TIMESTAMPS)
     func trackUsage(action: String, metadata: [String: String] = [:]) {
         guard let user = currentUser else { return }
-        
-        let usage = UsageRecord(
-            id: UUID().uuidString,
-            userId: user.id,
-            action: action,
-            timestamp: Date(),
-            month: getCurrentMonth(),
-            metadata: metadata
-        )
         
         print("📊 Tracking usage: \(action)")
         
@@ -579,7 +620,22 @@ class FirebaseService: NSObject, ObservableObject {
         }
         
         // Save usage record to Firestore
-        saveUsageToFirestore(usage)
+        let usageData: [String: Any] = [
+            "id": UUID().uuidString,
+            "userId": user.id,
+            "action": action,
+            "timestamp": Timestamp(date: Date()),
+            "month": getCurrentMonth(),
+            "metadata": metadata
+        ]
+        
+        db.collection("usage").document(UUID().uuidString).setData(usageData) { error in
+            if let error = error {
+                print("❌ Error saving usage to Firestore: \(error)")
+            } else {
+                print("✅ Usage saved to Firestore: \(action)")
+            }
+        }
     }
     
     private func updateUserUsageCount() {
@@ -643,91 +699,61 @@ class FirebaseService: NSObject, ObservableObject {
         return formatter.string(from: Date())
     }
     
-    private func saveUsageToFirestore(_ usage: UsageRecord) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
-        
-        do {
-            let data = try encoder.encode(usage)
-            let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            
-            db.collection("usage").document(usage.id).setData(dict) { error in
-                if let error = error {
-                    print("❌ Error saving usage to Firestore: \(error)")
-                } else {
-                    print("✅ Usage saved to Firestore: \(usage.action)")
-                }
-            }
-        } catch {
-            print("❌ Error encoding usage data: \(error)")
-        }
-    }
-    
-    // MARK: - INVENTORY SYNC
+    // MARK: - INVENTORY SYNC (FIXED FOR TIMESTAMPS)
     func syncInventoryItem(_ item: InventoryItem, completion: @escaping (Bool) -> Void) {
         guard let user = currentUser else {
             completion(false)
             return
         }
         
-        let firebaseItem = FirebaseInventoryItem(
-            id: item.id.uuidString,
-            userId: user.id,
-            itemNumber: item.itemNumber,
-            inventoryCode: item.inventoryCode,
-            name: item.name,
-            category: item.category,
-            brand: item.brand,
-            purchasePrice: item.purchasePrice,
-            suggestedPrice: item.suggestedPrice,
-            actualPrice: item.actualPrice,
-            source: item.source,
-            condition: item.condition,
-            title: item.title,
-            description: item.description,
-            keywords: item.keywords,
-            status: item.status.rawValue,
-            dateAdded: item.dateAdded,
-            dateListed: item.dateListed,
-            dateSold: item.dateSold,
-            imageURLs: [], // TODO: Upload images to Firebase Storage
-            ebayItemId: nil,
-            ebayURL: item.ebayURL,
-            marketConfidence: item.marketConfidence,
-            soldListingsCount: item.soldListingsCount,
-            demandLevel: item.demandLevel,
-            aiConfidence: item.aiConfidence,
-            resalePotential: item.resalePotential,
-            storageLocation: item.storageLocation,
-            binNumber: item.binNumber,
-            isPackaged: item.isPackaged,
-            packagedDate: item.packagedDate,
-            createdAt: Date(),
-            updatedAt: Date(),
-            syncStatus: "synced"
-        )
-        
         print("☁️ Syncing inventory item: \(item.name)")
         
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .secondsSince1970
+        // Convert InventoryItem to Firestore-compatible dictionary manually
+        let itemData: [String: Any] = [
+            "id": item.id.uuidString,
+            "userId": user.id,
+            "itemNumber": item.itemNumber,
+            "inventoryCode": item.inventoryCode,
+            "name": item.name,
+            "category": item.category,
+            "brand": item.brand,
+            "purchasePrice": item.purchasePrice,
+            "suggestedPrice": item.suggestedPrice,
+            "actualPrice": item.actualPrice ?? NSNull(),
+            "source": item.source,
+            "condition": item.condition,
+            "title": item.title,
+            "description": item.description,
+            "keywords": item.keywords,
+            "status": item.status.rawValue,
+            "dateAdded": Timestamp(date: item.dateAdded),
+            "dateListed": item.dateListed != nil ? Timestamp(date: item.dateListed!) : NSNull(),
+            "dateSold": item.dateSold != nil ? Timestamp(date: item.dateSold!) : NSNull(),
+            "imageURLs": [], // TODO: Upload images to Firebase Storage
+            "ebayItemId": NSNull(),
+            "ebayURL": item.ebayURL ?? NSNull(),
+            "marketConfidence": item.marketConfidence ?? NSNull(),
+            "soldListingsCount": item.soldListingsCount ?? NSNull(),
+            "demandLevel": item.demandLevel ?? NSNull(),
+            "aiConfidence": item.aiConfidence ?? NSNull(),
+            "resalePotential": item.resalePotential ?? NSNull(),
+            "storageLocation": item.storageLocation,
+            "binNumber": item.binNumber,
+            "isPackaged": item.isPackaged,
+            "packagedDate": item.packagedDate != nil ? Timestamp(date: item.packagedDate!) : NSNull(),
+            "createdAt": Timestamp(),
+            "updatedAt": Timestamp(),
+            "syncStatus": "synced"
+        ]
         
-        do {
-            let data = try encoder.encode(firebaseItem)
-            let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-            
-            db.collection("inventory").document(firebaseItem.id).setData(dict) { error in
-                if let error = error {
-                    print("❌ Error syncing inventory item: \(error)")
-                    completion(false)
-                } else {
-                    print("✅ Inventory item synced to Firestore")
-                    completion(true)
-                }
+        db.collection("inventory").document(item.id.uuidString).setData(itemData) { error in
+            if let error = error {
+                print("❌ Error syncing inventory item: \(error)")
+                completion(false)
+            } else {
+                print("✅ Inventory item synced to Firestore")
+                completion(true)
             }
-        } catch {
-            print("❌ Error encoding inventory item: \(error)")
-            completion(false)
         }
     }
     
@@ -757,21 +783,58 @@ class FirebaseService: NSObject, ObservableObject {
                 var items: [FirebaseInventoryItem] = []
                 
                 for doc in documents {
-                    do {
-                        let data = doc.data()
-                        let jsonData = try JSONSerialization.data(withJSONObject: data)
-                        let decoder = JSONDecoder()
-                        decoder.dateDecodingStrategy = .secondsSince1970
-                        let item = try decoder.decode(FirebaseInventoryItem.self, from: jsonData)
+                    if let item = self.parseFirebaseInventoryItem(from: doc.data()) {
                         items.append(item)
-                    } catch {
-                        print("❌ Error decoding inventory item: \(error)")
                     }
                 }
                 
                 print("✅ Loaded \(items.count) inventory items from Firestore")
                 completion(items)
             }
+    }
+    
+    private func parseFirebaseInventoryItem(from data: [String: Any]) -> FirebaseInventoryItem? {
+        guard let id = data["id"] as? String,
+              let userId = data["userId"] as? String,
+              let itemNumber = data["itemNumber"] as? Int,
+              let name = data["name"] as? String else { return nil }
+        
+        return FirebaseInventoryItem(
+            id: id,
+            userId: userId,
+            itemNumber: itemNumber,
+            inventoryCode: data["inventoryCode"] as? String ?? "",
+            name: name,
+            category: data["category"] as? String ?? "",
+            brand: data["brand"] as? String ?? "",
+            purchasePrice: data["purchasePrice"] as? Double ?? 0,
+            suggestedPrice: data["suggestedPrice"] as? Double ?? 0,
+            actualPrice: data["actualPrice"] as? Double,
+            source: data["source"] as? String ?? "",
+            condition: data["condition"] as? String ?? "",
+            title: data["title"] as? String ?? "",
+            description: data["description"] as? String ?? "",
+            keywords: data["keywords"] as? [String] ?? [],
+            status: data["status"] as? String ?? "sourced",
+            dateAdded: (data["dateAdded"] as? Timestamp)?.dateValue() ?? Date(),
+            dateListed: (data["dateListed"] as? Timestamp)?.dateValue(),
+            dateSold: (data["dateSold"] as? Timestamp)?.dateValue(),
+            imageURLs: data["imageURLs"] as? [String] ?? [],
+            ebayItemId: data["ebayItemId"] as? String,
+            ebayURL: data["ebayURL"] as? String,
+            marketConfidence: data["marketConfidence"] as? Double,
+            soldListingsCount: data["soldListingsCount"] as? Int,
+            demandLevel: data["demandLevel"] as? String,
+            aiConfidence: data["aiConfidence"] as? Double,
+            resalePotential: data["resalePotential"] as? Int,
+            storageLocation: data["storageLocation"] as? String ?? "",
+            binNumber: data["binNumber"] as? String ?? "",
+            isPackaged: data["isPackaged"] as? Bool ?? false,
+            packagedDate: (data["packagedDate"] as? Timestamp)?.dateValue(),
+            createdAt: (data["createdAt"] as? Timestamp)?.dateValue() ?? Date(),
+            updatedAt: (data["updatedAt"] as? Timestamp)?.dateValue() ?? Date(),
+            syncStatus: data["syncStatus"] as? String ?? "synced"
+        )
     }
     
     // MARK: - PLAN MANAGEMENT
@@ -803,7 +866,18 @@ class FirebaseService: NSObject, ObservableObject {
                         email: updatedUser.email,
                         displayName: updatedUser.displayName,
                         photoURL: updatedUser.photoURL,
-                        provider: updatedUser.provider
+                        provider: updatedUser.provider,
+                        createdAt: updatedUser.createdAt,
+                        lastLoginAt: Date(),
+                        currentPlan: plan,
+                        monthlyAnalysisCount: updatedUser.monthlyAnalysisCount,
+                        monthlyAnalysisLimit: plan.monthlyLimit,
+                        subscriptionStatus: .active,
+                        hasEbayConnected: updatedUser.hasEbayConnected,
+                        ebayUserId: updatedUser.ebayUserId,
+                        ebayTokenExpiry: updatedUser.ebayTokenExpiry,
+                        hasFaceIDEnabled: updatedUser.hasFaceIDEnabled,
+                        lastFaceIDCheck: updatedUser.lastFaceIDCheck
                     )
                     
                     DispatchQueue.main.async {
@@ -1001,5 +1075,27 @@ extension FirebaseService {
         }.joined()
         
         return hashString
+    }
+}
+
+// Add extension to safely initialize FirebaseUser with all parameters
+extension FirebaseUser {
+    init(id: String, email: String?, displayName: String?, photoURL: String? = nil, provider: String, createdAt: Date, lastLoginAt: Date, currentPlan: UserPlan, monthlyAnalysisCount: Int, monthlyAnalysisLimit: Int, subscriptionStatus: SubscriptionStatus, hasEbayConnected: Bool, ebayUserId: String?, ebayTokenExpiry: Date?, hasFaceIDEnabled: Bool, lastFaceIDCheck: Date?) {
+        self.id = id
+        self.email = email
+        self.displayName = displayName
+        self.photoURL = photoURL
+        self.provider = provider
+        self.createdAt = createdAt
+        self.lastLoginAt = lastLoginAt
+        self.currentPlan = currentPlan
+        self.monthlyAnalysisCount = monthlyAnalysisCount
+        self.monthlyAnalysisLimit = monthlyAnalysisLimit
+        self.subscriptionStatus = subscriptionStatus
+        self.hasEbayConnected = hasEbayConnected
+        self.ebayUserId = ebayUserId
+        self.ebayTokenExpiry = ebayTokenExpiry
+        self.hasFaceIDEnabled = hasFaceIDEnabled
+        self.lastFaceIDCheck = lastFaceIDCheck
     }
 }
