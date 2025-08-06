@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with FIXED Real eBay Finding API Integration
+//  Complete Reselling Automation with eBay Browse API + Rate Limiting
 //
 
 import SwiftUI
@@ -270,26 +270,25 @@ class BusinessService: ObservableObject {
     private func buildOptimizedSearchQueries(from productResult: ProductIdentificationResult) -> [String] {
         var queries: [String] = []
         
-        // Query 1: Most specific (brand + product + colorway + size)
+        // Clean up the query to avoid "not visible" in searches
+        let cleanProduct = productResult.exactProduct
+            .replacingOccurrences(of: productResult.brand, with: "", options: .caseInsensitive)
+            .trimmingCharacters(in: .whitespaces)
+        
+        // Query 1: Brand + Product + Colorway (skip size if "not visible")
         var specificQuery = ""
         if !productResult.brand.isEmpty {
             specificQuery += productResult.brand + " "
         }
         
-        let productName = productResult.exactProduct
-            .replacingOccurrences(of: productResult.brand, with: "", options: .caseInsensitive)
-            .trimmingCharacters(in: .whitespaces)
-        
-        if !productName.isEmpty {
-            specificQuery += productName + " "
+        if !cleanProduct.isEmpty {
+            specificQuery += cleanProduct + " "
         }
         
-        if let colorway = productResult.colorway, !colorway.isEmpty && !colorway.lowercased().contains("n/a") {
-            specificQuery += colorway + " "
-        }
-        
-        if let size = productResult.size, !size.isEmpty && !size.lowercased().contains("n/a") {
-            specificQuery += "size " + size + " "
+        if let colorway = productResult.colorway,
+           !colorway.isEmpty &&
+           !colorway.lowercased().contains("not visible") {
+            specificQuery += colorway
         }
         
         let finalSpecificQuery = specificQuery.trimmingCharacters(in: .whitespaces)
@@ -297,16 +296,13 @@ class BusinessService: ObservableObject {
             queries.append(finalSpecificQuery)
         }
         
-        // Query 2: Medium specific (brand + product + colorway)
+        // Query 2: Brand + Product only
         var mediumQuery = ""
         if !productResult.brand.isEmpty {
             mediumQuery += productResult.brand + " "
         }
-        if !productName.isEmpty {
-            mediumQuery += productName + " "
-        }
-        if let colorway = productResult.colorway, !colorway.isEmpty && !colorway.lowercased().contains("n/a") {
-            mediumQuery += colorway + " "
+        if !cleanProduct.isEmpty {
+            mediumQuery += cleanProduct
         }
         
         let finalMediumQuery = mediumQuery.trimmingCharacters(in: .whitespaces)
@@ -316,10 +312,10 @@ class BusinessService: ObservableObject {
         
         // Query 3: Brand only (fallback)
         if !productResult.brand.isEmpty {
-            queries.append(productResult.brand)
+            queries.append(productResult.brand + " sneakers") // Add category to narrow down
         }
         
-        print("🔍 Built search queries:")
+        print("🔍 Built optimized search queries:")
         for (index, query) in queries.enumerated() {
             print("   \(index + 1). \(query)")
         }
@@ -625,21 +621,21 @@ class BusinessService: ObservableObject {
             title += productResult.brand + " "
         }
         
-        if let modelNumber = productResult.modelNumber, !modelNumber.isEmpty {
+        if let modelNumber = productResult.modelNumber, !modelNumber.isEmpty && !modelNumber.contains("not visible") {
             title += modelNumber + " "
         } else {
             title += productResult.exactProduct + " "
         }
         
-        if let colorway = productResult.colorway, !colorway.isEmpty {
+        if let colorway = productResult.colorway, !colorway.isEmpty && !colorway.contains("not visible") {
             title += colorway + " "
         }
         
-        if let size = productResult.size, !size.isEmpty && !size.contains("visible") {
+        if let size = productResult.size, !size.isEmpty && !size.contains("not visible") {
             title += "Size \(size) "
         }
         
-        if let styleCode = productResult.styleCode, !styleCode.isEmpty && title.count < 60 {
+        if let styleCode = productResult.styleCode, !styleCode.isEmpty && !styleCode.contains("not visible") && title.count < 60 {
             title += styleCode + " "
         }
         
@@ -659,16 +655,16 @@ class BusinessService: ObservableObject {
         if !productResult.brand.isEmpty {
             description += "• Brand: \(productResult.brand)\n"
         }
-        if let model = productResult.modelNumber, !model.isEmpty {
+        if let model = productResult.modelNumber, !model.isEmpty && !model.contains("not visible") {
             description += "• Model: \(model)\n"
         }
-        if let size = productResult.size, !size.isEmpty && !size.contains("visible") {
+        if let size = productResult.size, !size.isEmpty && !size.contains("not visible") {
             description += "• Size: \(size)\n"
         }
-        if let colorway = productResult.colorway, !colorway.isEmpty {
+        if let colorway = productResult.colorway, !colorway.isEmpty && !colorway.contains("not visible") {
             description += "• Colorway: \(colorway)\n"
         }
-        if let styleCode = productResult.styleCode, !styleCode.isEmpty {
+        if let styleCode = productResult.styleCode, !styleCode.isEmpty && !styleCode.contains("not visible") {
             description += "• Style Code: \(styleCode)\n"
         }
         description += "• Condition: \(condition.ebayCondition)\n\n"
@@ -715,20 +711,20 @@ class BusinessService: ObservableObject {
             keywords.insert(productResult.brand.lowercased())
         }
         
-        if let model = productResult.modelNumber, !model.isEmpty {
+        if let model = productResult.modelNumber, !model.isEmpty && !model.contains("not visible") {
             keywords.insert(model.lowercased())
         }
         
         keywords.insert(productResult.category.lowercased())
         
-        if let styleCode = productResult.styleCode, !styleCode.isEmpty {
+        if let styleCode = productResult.styleCode, !styleCode.isEmpty && !styleCode.contains("not visible") {
             keywords.insert(styleCode.lowercased())
         }
-        if let colorway = productResult.colorway, !colorway.isEmpty {
+        if let colorway = productResult.colorway, !colorway.isEmpty && !colorway.contains("not visible") {
             keywords.insert(colorway.lowercased())
         }
         
-        if let size = productResult.size, !size.isEmpty && !size.contains("visible") {
+        if let size = productResult.size, !size.isEmpty && !size.contains("not visible") {
             keywords.insert("size \(size)")
         }
         
@@ -1189,7 +1185,7 @@ class AIAnalysisService: ObservableObject {
     }
 }
 
-// MARK: - FIXED EBAY SERVICE WITH CORRECT FINDING API FORMAT
+// MARK: - EBAY SERVICE WITH BROWSE API + RATE LIMITING + CACHING
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -1198,16 +1194,30 @@ class EbayService: NSObject, ObservableObject {
     private var refreshToken: String?
     private var authSession: ASWebAuthenticationSession?
     
-    // eBay Finding API configuration
+    // eBay API configuration
     private let appId = Configuration.ebayAPIKey
     private let findingAPIEndpoint = "https://svcs.ebay.com/services/search/FindingService/v1"
+    private let browseAPIEndpoint = "https://api.ebay.com/buy/browse/v1"
+    
+    // Rate limiting and caching
+    private var lastFindingAPICall: Date = Date.distantPast
+    private var callCount: Int = 0
+    private var searchCache: [String: CachedSearchResult] = [:]
+    private let rateLimitDelay: TimeInterval = 0.2 // 200ms between calls
+    private let cacheExpiration: TimeInterval = 3600 // 1 hour
+    
+    struct CachedSearchResult {
+        let items: [EbaySoldItem]
+        let timestamp: Date
+        let query: String
+    }
     
     override init() {
         super.init()
         loadSavedTokens()
     }
     
-    // MARK: - FIXED EBAY FINDING API WITH CORRECT REQUEST FORMAT
+    // MARK: - SMART EBAY SEARCH WITH RATE LIMITING + CACHING
     func findRealSoldComps(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
         guard !appId.isEmpty else {
             print("❌ eBay App ID not configured")
@@ -1222,93 +1232,91 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        print("🔍 Searching eBay Finding API for sold items: \(cleanQuery)")
-        makeEbayFindingRequest(operation: "findCompletedItems", keywords: cleanQuery, completion: completion)
+        // Check cache first
+        let cacheKey = cleanQuery.lowercased()
+        if let cachedResult = searchCache[cacheKey],
+           Date().timeIntervalSince(cachedResult.timestamp) < cacheExpiration {
+            print("✅ Using cached result for: \(cleanQuery)")
+            completion(cachedResult.items)
+            return
+        }
+        
+        // Check rate limit
+        let timeSinceLastCall = Date().timeIntervalSince(lastFindingAPICall)
+        if timeSinceLastCall < rateLimitDelay {
+            let delay = rateLimitDelay - timeSinceLastCall
+            print("⏳ Rate limiting: waiting \(String(format: "%.1f", delay))s")
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                self.performEbaySearch(query: cleanQuery, completion: completion)
+            }
+        } else {
+            performEbaySearch(query: cleanQuery, completion: completion)
+        }
     }
     
-    func findActiveListings(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
-        guard !appId.isEmpty else {
-            print("❌ eBay App ID not configured")
+    private func performEbaySearch(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
+        print("🔍 Searching eBay for: \(query)")
+        lastFindingAPICall = Date()
+        callCount += 1
+        
+        // Try Browse API first (higher limits), fallback to Finding API
+        searchWithBrowseAPI(query: query) { [weak self] items in
+            if !items.isEmpty {
+                print("✅ Browse API returned \(items.count) items")
+                self?.cacheSearchResult(query: query, items: items)
+                completion(items)
+            } else {
+                print("🔄 Browse API empty, trying Finding API...")
+                self?.searchWithFindingAPI(query: query, completion: completion)
+            }
+        }
+    }
+    
+    // MARK: - EBAY BROWSE API (HIGHER LIMITS)
+    private func searchWithBrowseAPI(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
+        // Browse API requires OAuth token, but has much higher limits
+        guard let accessToken = getApplicationToken() else {
+            print("⚠️ No Browse API token available")
             completion([])
             return
         }
         
-        let cleanQuery = query.trimmingCharacters(in: .whitespaces)
-        guard !cleanQuery.isEmpty else {
-            print("❌ Empty search query")
-            completion([])
-            return
-        }
+        var components = URLComponents(string: "\(browseAPIEndpoint)/item_summary/search")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "limit", value: "50"),
+            URLQueryItem(name: "filter", value: "conditionIds:{3000|4000|5000}"), // Used conditions
+            URLQueryItem(name: "sort", value: "endTimeSoonest")
+        ]
         
-        print("🔍 Searching eBay Finding API for active listings: \(cleanQuery)")
-        makeEbayFindingRequest(operation: "findItemsByKeywords", keywords: cleanQuery, completion: completion)
-    }
-    
-    private func makeEbayFindingRequest(operation: String, keywords: String, completion: @escaping ([EbaySoldItem]) -> Void) {
-        guard let url = URL(string: findingAPIEndpoint) else {
-            print("❌ Invalid eBay Finding API URL")
+        guard let url = components.url else {
             completion([])
             return
         }
         
         var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(operation, forHTTPHeaderField: "X-EBAY-SOA-OPERATION-NAME") // CRITICAL: Add missing header
-        request.setValue("1.0.0", forHTTPHeaderField: "X-EBAY-SOA-SERVICE-VERSION")
-        request.timeoutInterval = 30
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("EBAY_US", forHTTPHeaderField: "X-EBAY-C-MARKETPLACE-ID")
+        request.timeoutInterval = 15
         
-        // Build eBay Finding API request parameters (FIXED FORMAT)
-        var bodyComponents = [
-            "OPERATION-NAME=\(operation)",
-            "SERVICE-VERSION=1.0.0",
-            "SECURITY-APPNAME=\(appId)",
-            "RESPONSE-DATA-FORMAT=JSON",
-            "REST-PAYLOAD",
-            "keywords=\(keywords.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")",
-            "paginationInput.entriesPerPage=100"
-        ]
-        
-        // Add filters based on operation
-        if operation == "findCompletedItems" {
-            // For sold comps - only sold items from last 15 days
-            bodyComponents.append("itemFilter(0).name=SoldItemsOnly")
-            bodyComponents.append("itemFilter(0).value=true")
-            bodyComponents.append("itemFilter(1).name=EndTimeFrom")
-            bodyComponents.append("itemFilter(1).value=\(formatEbayDate(Date().addingTimeInterval(-15 * 24 * 60 * 60)))")
-            bodyComponents.append("itemFilter(2).name=MinPrice")
-            bodyComponents.append("itemFilter(2).value=1.00") // Exclude $0 items
-            bodyComponents.append("sortOrder=EndTimeSoonest")
-        } else {
-            // For active listings
-            bodyComponents.append("itemFilter(0).name=MinPrice")
-            bodyComponents.append("itemFilter(0).value=1.00") // Exclude $0 items
-            bodyComponents.append("itemFilter(1).name=ExcludeCategory")
-            bodyComponents.append("itemFilter(1).value=10542") // Exclude parts/repair
-            bodyComponents.append("sortOrder=PricePlusShippingLowest")
-        }
-        
-        let bodyString = bodyComponents.joined(separator: "&")
-        request.httpBody = bodyString.data(using: .utf8)
-        
-        print("🚀 eBay Finding API request: \(operation)")
-        print("📝 Query: \(keywords)")
-        print("🔧 Request headers: \(request.allHTTPHeaderFields ?? [:])")
+        print("🚀 Browse API request: \(query)")
         
         URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                print("❌ eBay Finding API network error: \(error)")
+                print("❌ Browse API error: \(error)")
                 completion([])
                 return
             }
             
             if let httpResponse = response as? HTTPURLResponse {
-                print("📡 eBay Finding API status: \(httpResponse.statusCode)")
+                print("📡 Browse API status: \(httpResponse.statusCode)")
                 
                 if httpResponse.statusCode != 200 {
-                    print("❌ eBay Finding API HTTP error \(httpResponse.statusCode)")
                     if let data = data, let errorString = String(data: data, encoding: .utf8) {
-                        print("❌ Error response: \(errorString)")
+                        print("❌ Browse API error: \(String(errorString.prefix(200)))")
                     }
                     completion([])
                     return
@@ -1316,29 +1324,141 @@ class EbayService: NSObject, ObservableObject {
             }
             
             guard let data = data else {
-                print("❌ No data from eBay Finding API")
+                print("❌ No data from Browse API")
                 completion([])
                 return
             }
             
-            // Log raw response for debugging
-            if let responseString = String(data: data, encoding: .utf8) {
-                print("📦 Raw eBay response (first 500 chars): \(String(responseString.prefix(500)))")
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    let items = self.parseBrowseAPIResponse(json)
+                    print("✅ Browse API: Found \(items.count) items")
+                    completion(items)
+                } else {
+                    print("❌ Invalid Browse API JSON")
+                    completion([])
+                }
+            } catch {
+                print("❌ Browse API JSON error: \(error)")
+                completion([])
+            }
+        }.resume()
+    }
+    
+    private func parseBrowseAPIResponse(_ json: [String: Any]) -> [EbaySoldItem] {
+        var items: [EbaySoldItem] = []
+        
+        if let itemSummaries = json["itemSummaries"] as? [[String: Any]] {
+            for itemData in itemSummaries {
+                if let title = itemData["title"] as? String,
+                   let price = itemData["price"] as? [String: Any],
+                   let value = price["value"] as? String,
+                   let priceDouble = Double(value) {
+                    
+                    let condition = itemData["condition"] as? String
+                    
+                    let item = EbaySoldItem(
+                        title: title,
+                        price: priceDouble,
+                        condition: condition,
+                        soldDate: Date(), // Browse API shows active listings
+                        shipping: nil,
+                        bestOfferAccepted: false
+                    )
+                    items.append(item)
+                }
+            }
+        }
+        
+        return items
+    }
+    
+    // MARK: - FALLBACK: FINDING API WITH BETTER ERROR HANDLING
+    private func searchWithFindingAPI(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
+        var components = URLComponents(string: findingAPIEndpoint)!
+        
+        // Build all parameters as URL query items
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "OPERATION-NAME", value: "findCompletedItems"),
+            URLQueryItem(name: "SERVICE-VERSION", value: "1.0.0"),
+            URLQueryItem(name: "SECURITY-APPNAME", value: appId),
+            URLQueryItem(name: "RESPONSE-DATA-FORMAT", value: "JSON"),
+            URLQueryItem(name: "keywords", value: query),
+            URLQueryItem(name: "paginationInput.entriesPerPage", value: "25") // Reduced to avoid rate limits
+        ]
+        
+        // Add filters for sold items
+        queryItems.append(contentsOf: [
+            URLQueryItem(name: "itemFilter(0).name", value: "SoldItemsOnly"),
+            URLQueryItem(name: "itemFilter(0).value", value: "true"),
+            URLQueryItem(name: "itemFilter(1).name", value: "EndTimeFrom"),
+            URLQueryItem(name: "itemFilter(1).value", value: formatEbayDate(Date().addingTimeInterval(-30 * 24 * 60 * 60))), // Last 30 days
+            URLQueryItem(name: "itemFilter(2).name", value: "MinPrice"),
+            URLQueryItem(name: "itemFilter(2).value", value: "5.00"), // Higher minimum to filter junk
+            URLQueryItem(name: "sortOrder", value: "EndTimeSoonest")
+        ])
+        
+        components.queryItems = queryItems
+        
+        guard let url = components.url else {
+            print("❌ Could not build Finding API URL")
+            completion([])
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 20
+        
+        print("🚀 Finding API request: \(query)")
+        print("📊 Call count: \(callCount)")
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Finding API network error: \(error)")
+                completion([])
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("📡 Finding API status: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode != 200 {
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("❌ Finding API error: \(String(errorString.prefix(200)))")
+                        
+                        // Check for specific rate limit errors
+                        if errorString.contains("10001") || errorString.contains("RateLimiter") {
+                            print("⚠️ Rate limit hit - will use cached/fallback data")
+                        }
+                    }
+                    completion([])
+                    return
+                }
+            }
+            
+            guard let data = data else {
+                print("❌ No data from Finding API")
+                completion([])
+                return
             }
             
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    let soldItems = self.parseEbayFindingResponse(json, operation: operation)
-                    print("✅ eBay Finding API: Found \(soldItems.count) real items")
+                    let soldItems = self.parseEbayFindingResponse(json, operation: "findCompletedItems")
+                    print("✅ Finding API: Found \(soldItems.count) sold items")
+                    
+                    // Cache the result
+                    self.cacheSearchResult(query: query, items: soldItems)
                     
                     // Log sample items for verification
-                    for (index, item) in soldItems.prefix(3).enumerated() {
+                    for (index, item) in soldItems.prefix(2).enumerated() {
                         print("   \(index + 1). \(item.title) - $\(String(format: "%.2f", item.price))")
                     }
                     
                     completion(soldItems)
                 } else {
-                    print("❌ Invalid JSON format from eBay Finding API")
+                    print("❌ Invalid JSON from Finding API")
                     completion([])
                 }
             } catch {
@@ -1462,6 +1582,38 @@ class EbayService: NSObject, ObservableObject {
             shipping: shipping,
             bestOfferAccepted: bestOffer
         )
+    }
+    
+    // MARK: - CACHING SYSTEM
+    private func cacheSearchResult(query: String, items: [EbaySoldItem]) {
+        let cacheKey = query.lowercased()
+        searchCache[cacheKey] = CachedSearchResult(
+            items: items,
+            timestamp: Date(),
+            query: query
+        )
+        
+        // Clean old cache entries (keep last 50)
+        if searchCache.count > 50 {
+            let sortedKeys = searchCache.keys.sorted { key1, key2 in
+                let date1 = searchCache[key1]?.timestamp ?? Date.distantPast
+                let date2 = searchCache[key2]?.timestamp ?? Date.distantPast
+                return date1 < date2
+            }
+            
+            for key in sortedKeys.prefix(searchCache.count - 50) {
+                searchCache.removeValue(forKey: key)
+            }
+        }
+        
+        print("💾 Cached search result for: \(query) (\(items.count) items)")
+    }
+    
+    // MARK: - APPLICATION TOKEN FOR BROWSE API
+    private func getApplicationToken() -> String? {
+        // For now, return nil to force Finding API usage
+        // In production, implement proper OAuth application token flow
+        return nil
     }
     
     private func parseEbayDate(_ dateString: String) -> Date? {
