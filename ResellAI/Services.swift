@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with Real eBay Integration
+//  Complete Reselling Automation with Queue System and Real eBay Integration
 //
 
 import SwiftUI
@@ -11,7 +11,7 @@ import Vision
 import AuthenticationServices
 import FirebaseFirestore
 
-// MARK: - MAIN BUSINESS SERVICE WITH FIREBASE INTEGRATION
+// MARK: - MAIN BUSINESS SERVICE WITH QUEUE SYSTEM
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -20,6 +20,12 @@ class BusinessService: ObservableObject {
     @Published var syncStatus = "Ready"
     @Published var lastSyncDate: Date?
     
+    // Queue System
+    @Published var processingQueue = ProcessingQueue()
+    @Published var isProcessingQueue = false
+    @Published var queueProgress = "Queue Ready"
+    @Published var queueProgressValue: Double = 0.0
+    
     private let aiService = AIAnalysisService()
     let ebayService = EbayService()
     private let googleSheetsService = GoogleSheetsService()
@@ -27,8 +33,12 @@ class BusinessService: ObservableObject {
     // Firebase integration
     private weak var firebaseService: FirebaseService?
     
+    // Queue processing timer
+    private var queueTimer: Timer?
+    
     init() {
-        print("🚀 ResellAI Business Service initialized")
+        print("🚀 ResellAI Business Service initialized with Queue System")
+        loadSavedQueue()
     }
     
     func initialize(with firebaseService: FirebaseService? = nil) {
@@ -40,7 +50,362 @@ class BusinessService: ObservableObject {
         ebayService.initialize()
     }
     
-    // MARK: - COMPLETE ITEM ANALYSIS WITH REAL EBAY DATA
+    // MARK: - QUEUE MANAGEMENT METHODS
+    
+    func addItemToQueue(photos: [UIImage]) -> UUID {
+        let itemId = processingQueue.addItem(photos: photos)
+        saveQueue()
+        
+        print("📱 Added item to queue: \(processingQueue.items.count) total items")
+        
+        // Auto-start processing if user has available analyses and nothing is currently processing
+        if !processingQueue.isProcessing && canProcessQueue() {
+            startProcessingQueue()
+        }
+        
+        return itemId
+    }
+    
+    func addPhotosToQueueItem(itemId: UUID, photos: [UIImage]) {
+        if let index = processingQueue.items.firstIndex(where: { $0.id == itemId }) {
+            let existingPhotos = processingQueue.items[index].uiImages
+            let combinedPhotos = existingPhotos + photos
+            let limitedPhotos = Array(combinedPhotos.prefix(8)) // Max 8 photos
+            
+            processingQueue.items[index].photos = limitedPhotos.compactMap { $0.jpegData(compressionQuality: 0.8) }
+            saveQueue()
+            
+            print("📸 Added \(photos.count) photos to queue item, total: \(limitedPhotos.count)")
+        }
+    }
+    
+    func startProcessingQueue() {
+        guard !processingQueue.isProcessing else { return }
+        guard canProcessQueue() else {
+            print("⚠️ Cannot process queue - no available analyses or rate limit hit")
+            return
+        }
+        
+        processingQueue.isProcessing = true
+        isProcessingQueue = true
+        queueProgress = "Starting queue processing..."
+        
+        print("🔄 Starting queue processing with \(processingQueue.pendingItems.count) pending items")
+        
+        // Start processing timer
+        startQueueProcessingTimer()
+        
+        // Process first item
+        processNextQueueItem()
+        
+        saveQueue()
+    }
+    
+    func pauseProcessingQueue() {
+        processingQueue.isProcessing = false
+        isProcessingQueue = false
+        queueProgress = "Queue paused"
+        
+        // Stop timer
+        queueTimer?.invalidate()
+        queueTimer = nil
+        
+        print("⏸️ Queue processing paused")
+        saveQueue()
+    }
+    
+    func removeFromQueue(itemId: UUID) {
+        processingQueue.removeItem(itemId)
+        saveQueue()
+        
+        print("🗑️ Removed item from queue")
+        
+        // If we removed the currently processing item, move to next
+        if processingQueue.currentlyProcessing == itemId {
+            processingQueue.currentlyProcessing = nil
+            if processingQueue.isProcessing {
+                processNextQueueItem()
+            }
+        }
+    }
+    
+    func retryQueueItem(itemId: UUID) {
+        if let index = processingQueue.items.firstIndex(where: { $0.id == itemId }) {
+            processingQueue.items[index].status = .pending
+            processingQueue.items[index].errorMessage = nil
+            processingQueue.items[index].wasCountedAgainstLimit = false
+            
+            print("🔄 Retrying queue item")
+            
+            // If queue is processing and nothing is currently being processed, start this item
+            if processingQueue.isProcessing && processingQueue.currentlyProcessing == nil {
+                processNextQueueItem()
+            }
+            
+            saveQueue()
+        }
+    }
+    
+    func clearQueue() {
+        pauseProcessingQueue()
+        processingQueue.clear()
+        queueProgress = "Queue cleared"
+        queueProgressValue = 0.0
+        saveQueue()
+        
+        print("🗑️ Queue cleared")
+    }
+    
+    // MARK: - PRIVATE QUEUE PROCESSING METHODS
+    
+    private func canProcessQueue() -> Bool {
+        guard let firebase = firebaseService else { return false }
+        return firebase.canAnalyze && !processingQueue.rateLimitHit
+    }
+    
+    private func startQueueProcessingTimer() {
+        queueTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.updateQueueProgress()
+        }
+    }
+    
+    private func updateQueueProgress() {
+        let totalItems = processingQueue.items.count
+        let completedItems = processingQueue.completedItems.count + processingQueue.failedItems.count
+        
+        if totalItems > 0 {
+            queueProgressValue = Double(completedItems) / Double(totalItems)
+        }
+        
+        if let currentId = processingQueue.currentlyProcessing,
+           let currentItem = processingQueue.items.first(where: { $0.id == currentId }) {
+            queueProgress = "Processing Item \(currentItem.position)..."
+        } else if completedItems == totalItems && totalItems > 0 {
+            queueProgress = "Queue complete!"
+        }
+    }
+    
+    private func processNextQueueItem() {
+        // Check if we can still process
+        guard canProcessQueue() else {
+            handleRateLimitReached()
+            return
+        }
+        
+        // Get next item to process
+        guard let nextItem = processingQueue.nextItemToProcess else {
+            // No more items to process
+            finishQueueProcessing()
+            return
+        }
+        
+        // Mark item as processing
+        processingQueue.currentlyProcessing = nextItem.id
+        processingQueue.updateItemStatus(nextItem.id, status: .processing)
+        
+        print("🔍 Processing queue item \(nextItem.position)")
+        
+        // Analyze the item
+        analyzeQueueItem(nextItem)
+    }
+    
+    private func analyzeQueueItem(_ item: QueuedItem) {
+        let photos = item.uiImages
+        
+        guard !photos.isEmpty else {
+            processQueueItemComplete(item.id, result: nil, error: "No photos provided")
+            return
+        }
+        
+        // Track usage in Firebase - but don't count failures against limit
+        firebaseService?.trackUsage(action: "analysis", metadata: [
+            "source": "queue",
+            "item_position": "\(item.position)",
+            "photo_count": "\(photos.count)"
+        ])
+        
+        // Analyze the item using existing analysis logic
+        aiService.identifyProductPrecisely(images: photos) { [weak self] productResult in
+            guard let self = self else { return }
+            
+            guard let productResult = productResult else {
+                self.processQueueItemComplete(
+                    item.id,
+                    result: nil,
+                    error: "Failed to identify product",
+                    shouldCountAgainstLimit: false
+                )
+                return
+            }
+            
+            // Search market data
+            let searchQueries = self.buildOptimizedSearchQueries(from: productResult)
+            
+            self.searchMarketData(queries: searchQueries) { marketData in
+                // Process complete analysis
+                let pricing = self.calculateOptimalPricing(from: marketData, productResult: productResult)
+                let listing = self.generateProfessionalListing(productResult: productResult, pricing: pricing)
+                
+                let finalResult = AnalysisResult(
+                    name: self.buildDetailedProductName(from: productResult),
+                    brand: productResult.brand,
+                    category: productResult.category,
+                    condition: productResult.aiAssessedCondition,
+                    title: listing.optimizedTitle,
+                    description: listing.professionalDescription,
+                    keywords: listing.seoKeywords,
+                    suggestedPrice: pricing.marketPrice,
+                    quickPrice: pricing.quickPrice,
+                    premiumPrice: pricing.premiumPrice,
+                    averagePrice: pricing.averagePrice,
+                    soldListingsCount: marketData.soldComps.count > 0 ? marketData.soldComps.count : nil,
+                    competitorCount: marketData.activeListings.count > 0 ? marketData.activeListings.count : nil,
+                    demandLevel: self.calculateDemandLevel(marketData: marketData),
+                    listingStrategy: "Fixed Price",
+                    sourcingTips: self.generateSourcingTips(productResult: productResult, pricing: pricing),
+                    resalePotential: self.calculateResalePotential(pricing: pricing, marketData: marketData),
+                    priceRange: EbayPriceRange(
+                        low: pricing.quickPrice,
+                        high: pricing.premiumPrice,
+                        average: pricing.averagePrice
+                    ),
+                    recentSales: marketData.soldComps.prefix(5).map { item in
+                        RecentSale(
+                            title: item.title,
+                            price: item.price,
+                            condition: item.condition ?? "Used",
+                            date: item.soldDate ?? Date(),
+                            shipping: item.shipping,
+                            bestOffer: item.bestOfferAccepted ?? false
+                        )
+                    },
+                    exactModel: productResult.modelNumber,
+                    styleCode: productResult.styleCode,
+                    size: productResult.size,
+                    colorway: productResult.colorway,
+                    releaseYear: productResult.releaseYear,
+                    subcategory: productResult.subcategory
+                )
+                
+                self.processQueueItemComplete(item.id, result: finalResult, error: nil)
+            }
+        }
+    }
+    
+    private func processQueueItemComplete(_ itemId: UUID, result: AnalysisResult?, error: String?, shouldCountAgainstLimit: Bool = true) {
+        DispatchQueue.main.async {
+            if let result = result {
+                // Success
+                self.processingQueue.updateItemStatus(itemId, status: .completed, result: result)
+                print("✅ Queue item \(itemId) completed successfully")
+            } else {
+                // Failure - mark as failed but don't count against limit unless it was a real API call
+                self.processingQueue.updateItemStatus(itemId, status: .failed, error: error)
+                
+                if let index = self.processingQueue.items.firstIndex(where: { $0.id == itemId }) {
+                    self.processingQueue.items[index].wasCountedAgainstLimit = shouldCountAgainstLimit
+                }
+                
+                print("❌ Queue item \(itemId) failed: \(error ?? "Unknown error")")
+            }
+            
+            // Clear currently processing
+            self.processingQueue.currentlyProcessing = nil
+            
+            // Save queue state
+            self.saveQueue()
+            
+            // Process next item after a brief delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                if self.processingQueue.isProcessing {
+                    self.processNextQueueItem()
+                }
+            }
+        }
+    }
+    
+    private func handleRateLimitReached() {
+        processingQueue.rateLimitHit = true
+        processingQueue.isProcessing = false
+        isProcessingQueue = false
+        
+        queueTimer?.invalidate()
+        queueTimer = nil
+        
+        queueProgress = "Rate limit reached - queue paused"
+        
+        print("⚠️ Rate limit reached, queue processing paused")
+        
+        // Send notification about rate limit
+        NotificationCenter.default.post(name: .rateLimitReached, object: nil)
+        
+        saveQueue()
+    }
+    
+    private func finishQueueProcessing() {
+        processingQueue.isProcessing = false
+        isProcessingQueue = false
+        processingQueue.currentlyProcessing = nil
+        processingQueue.rateLimitHit = false
+        
+        queueTimer?.invalidate()
+        queueTimer = nil
+        
+        let completedCount = processingQueue.completedItems.count
+        let failedCount = processingQueue.failedItems.count
+        
+        queueProgress = "Queue complete: \(completedCount) analyzed, \(failedCount) failed"
+        queueProgressValue = 1.0
+        
+        print("✅ Queue processing finished: \(completedCount) completed, \(failedCount) failed")
+        
+        // Send completion notification
+        if completedCount > 0 {
+            scheduleCompletionNotification(completedCount: completedCount)
+        }
+        
+        saveQueue()
+    }
+    
+    private func scheduleCompletionNotification(completedCount: Int) {
+        // This would schedule a local notification when queue is complete
+        // Implementation depends on your notification setup
+        print("📱 Would send notification: \(completedCount) items analyzed and ready for review")
+    }
+    
+    // MARK: - QUEUE PERSISTENCE
+    
+    private func saveQueue() {
+        do {
+            let data = try JSONEncoder().encode(processingQueue)
+            UserDefaults.standard.set(data, forKey: "ProcessingQueue")
+        } catch {
+            print("❌ Error saving queue: \(error)")
+        }
+    }
+    
+    private func loadSavedQueue() {
+        guard let data = UserDefaults.standard.data(forKey: "ProcessingQueue") else {
+            return
+        }
+        
+        do {
+            processingQueue = try JSONDecoder().decode(ProcessingQueue.self, from: data)
+            print("📱 Loaded saved queue with \(processingQueue.items.count) items")
+            
+            // Reset processing state on app restart
+            processingQueue.isProcessing = false
+            processingQueue.currentlyProcessing = nil
+            isProcessingQueue = false
+            
+        } catch {
+            print("❌ Error loading saved queue: \(error)")
+            processingQueue = ProcessingQueue()
+        }
+    }
+    
+    // MARK: - EXISTING ANALYSIS METHODS (UNCHANGED)
+    
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             completion(nil)
@@ -58,6 +423,7 @@ class BusinessService: ObservableObject {
         
         // Track usage in Firebase
         firebaseService?.trackUsage(action: "analysis", metadata: [
+            "source": "single_item",
             "image_count": "\(images.count)",
             "timestamp": ISO8601DateFormatter().string(from: Date())
         ])
@@ -624,6 +990,12 @@ class BusinessService: ObservableObject {
         googleSheetsService.$syncStatus.receive(on: DispatchQueue.main).assign(to: &$syncStatus)
         googleSheetsService.$lastSyncDate.receive(on: DispatchQueue.main).assign(to: &$lastSyncDate)
     }
+}
+
+// MARK: - NOTIFICATION EXTENSION
+extension Notification.Name {
+    static let rateLimitReached = Notification.Name("rateLimitReached")
+    static let queueProcessingComplete = Notification.Name("queueProcessingComplete")
 }
 
 // MARK: - SUPPORTING MODELS

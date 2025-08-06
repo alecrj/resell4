@@ -2,7 +2,7 @@
 //  Models.swift
 //  ResellAI
 //
-//  Ultimate Consolidated Models - FAANG Level Architecture
+//  Ultimate Consolidated Models with Queue System - FAANG Level Architecture
 //
 
 import SwiftUI
@@ -123,6 +123,126 @@ struct InventoryItem: Identifiable, Codable {
         self.soldListingsCount = soldListingsCount
         self.priceRange = priceRange
         self.lastMarketUpdate = lastMarketUpdate
+    }
+}
+
+// MARK: - QUEUE SYSTEM MODELS
+struct QueuedItem: Identifiable, Codable {
+    let id = UUID()
+    var photos: [Data] // Store as Data for persistence
+    var status: QueueStatus
+    var analysisResult: AnalysisResult?
+    var errorMessage: String?
+    var position: Int
+    var dateAdded: Date
+    var dateProcessed: Date?
+    var wasCountedAgainstLimit: Bool // Track if failure counted against rate limit
+    
+    init(photos: [UIImage], position: Int) {
+        self.photos = photos.compactMap { $0.jpegData(compressionQuality: 0.8) }
+        self.status = .pending
+        self.position = position
+        self.dateAdded = Date()
+        self.wasCountedAgainstLimit = false
+    }
+    
+    // Convert Data back to UIImages for processing
+    var uiImages: [UIImage] {
+        return photos.compactMap { UIImage(data: $0) }
+    }
+}
+
+enum QueueStatus: String, CaseIterable, Codable {
+    case pending = "Pending"
+    case processing = "Processing"
+    case completed = "Completed"
+    case failed = "Failed"
+    
+    var color: Color {
+        switch self {
+        case .pending: return .orange
+        case .processing: return .blue
+        case .completed: return .green
+        case .failed: return .red
+        }
+    }
+    
+    var systemImage: String {
+        switch self {
+        case .pending: return "clock.fill"
+        case .processing: return "gear.badge"
+        case .completed: return "checkmark.circle.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        }
+    }
+}
+
+struct ProcessingQueue: Codable {
+    var items: [QueuedItem] = []
+    var isProcessing: Bool = false
+    var currentlyProcessing: UUID?
+    var rateLimitHit: Bool = false
+    var lastProcessedDate: Date?
+    var totalProcessed: Int = 0
+    var totalFailed: Int = 0
+    
+    var pendingItems: [QueuedItem] {
+        return items.filter { $0.status == .pending }
+    }
+    
+    var completedItems: [QueuedItem] {
+        return items.filter { $0.status == .completed }
+    }
+    
+    var failedItems: [QueuedItem] {
+        return items.filter { $0.status == .failed }
+    }
+    
+    var nextItemToProcess: QueuedItem? {
+        return pendingItems.sorted { $0.position < $1.position }.first
+    }
+    
+    var estimatedTimeRemaining: TimeInterval? {
+        let remainingItems = pendingItems.count
+        guard remainingItems > 0 else { return nil }
+        
+        // Estimate ~30 seconds per analysis
+        return TimeInterval(remainingItems * 30)
+    }
+    
+    mutating func addItem(photos: [UIImage]) -> UUID {
+        let nextPosition = (items.map { $0.position }.max() ?? 0) + 1
+        let queuedItem = QueuedItem(photos: photos, position: nextPosition)
+        items.append(queuedItem)
+        return queuedItem.id
+    }
+    
+    mutating func updateItemStatus(_ itemId: UUID, status: QueueStatus, result: AnalysisResult? = nil, error: String? = nil) {
+        if let index = items.firstIndex(where: { $0.id == itemId }) {
+            items[index].status = status
+            items[index].analysisResult = result
+            items[index].errorMessage = error
+            items[index].dateProcessed = Date()
+            
+            if status == .failed {
+                totalFailed += 1
+            } else if status == .completed {
+                totalProcessed += 1
+            }
+        }
+    }
+    
+    mutating func removeItem(_ itemId: UUID) {
+        items.removeAll { $0.id == itemId }
+    }
+    
+    mutating func clear() {
+        items.removeAll()
+        isProcessing = false
+        currentlyProcessing = nil
+        rateLimitHit = false
+        totalProcessed = 0
+        totalFailed = 0
     }
 }
 

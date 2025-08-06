@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with Firebase Integration
+//  Complete Reselling Automation with Queue System and Fixed Multi-Photo Support
 //
 
 import SwiftUI
@@ -125,7 +125,7 @@ struct BusinessHeader: View {
     }
 }
 
-// MARK: - BUSINESS TAB VIEW
+// MARK: - BUSINESS TAB VIEW WITH QUEUE
 struct BusinessTabView: View {
     var body: some View {
         TabView {
@@ -133,6 +133,12 @@ struct BusinessTabView: View {
                 .tabItem {
                     Image(systemName: "viewfinder")
                     Text("Analyze")
+                }
+            
+            QueueView()
+                .tabItem {
+                    Image(systemName: "tray.full")
+                    Text("Queue")
                 }
             
             DashboardView()
@@ -163,7 +169,7 @@ struct BusinessTabView: View {
     }
 }
 
-// MARK: - ANALYSIS VIEW WITH USAGE LIMITS
+// MARK: - ANALYSIS VIEW WITH FIXED MULTI-PHOTO
 struct AnalysisView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
@@ -182,11 +188,14 @@ struct AnalysisView: View {
     @State private var isCreatingListing = false
     @State private var listingStatus = ""
     
+    // PhotosPicker state
+    @State private var selectedItems: [PhotosPickerItem] = []
+    
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Usage status - showing both analysis and listing limits
+                    // Usage status
                     if let user = firebaseService.currentUser {
                         UsageStatusCard(
                             analysisCount: firebaseService.monthlyAnalysisCount,
@@ -215,8 +224,53 @@ struct AnalysisView: View {
                             onReset: resetAnalysis
                         )
                     } else {
-                        // Photo grid
-                        PhotoGrid(images: capturedImages, onRemove: removeImage)
+                        // Photo grid with remove functionality
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("\(capturedImages.count) photo\(capturedImages.count == 1 ? "" : "s") selected")
+                                .font(.headline)
+                                .fontWeight(.semibold)
+                            
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 12) {
+                                ForEach(Array(capturedImages.enumerated()), id: \.offset) { index, image in
+                                    ZStack(alignment: .topTrailing) {
+                                        Image(uiImage: image)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(height: 120)
+                                            .clipped()
+                                            .cornerRadius(12)
+                                        
+                                        Button(action: {
+                                            capturedImages.remove(at: index)
+                                        }) {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .font(.title3)
+                                                .foregroundColor(.white)
+                                                .background(Color.black.opacity(0.6))
+                                                .clipShape(Circle())
+                                        }
+                                        .padding(8)
+                                    }
+                                }
+                                
+                                // Add more photos button (up to 8 total)
+                                if capturedImages.count < 8 {
+                                    Button(action: { showingPhotoLibrary = true }) {
+                                        VStack(spacing: 8) {
+                                            Image(systemName: "plus")
+                                                .font(.title)
+                                            Text("Add More")
+                                                .font(.caption)
+                                        }
+                                        .foregroundColor(.blue)
+                                        .frame(height: 120)
+                                        .frame(maxWidth: .infinity)
+                                        .background(Color(.systemGray5))
+                                        .cornerRadius(12)
+                                    }
+                                }
+                            }
+                        }
                         
                         // Analysis button
                         AnalysisButton(
@@ -233,7 +287,7 @@ struct AnalysisView: View {
                         }
                     }
                     
-                    // Analysis progress - CLEANED UP
+                    // Analysis progress
                     if isAnalyzing {
                         CleanAnalysisProgress(
                             progress: businessService.analysisProgress,
@@ -241,7 +295,7 @@ struct AnalysisView: View {
                         )
                     }
                     
-                    // Analysis result with eBay integration - CLEANED UP
+                    // Analysis result
                     if let analysisResult = analysisResult {
                         CleanAnalysisResultView(
                             analysis: analysisResult,
@@ -262,27 +316,30 @@ struct AnalysisView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .sheet(isPresented: $showingCamera) {
-            ResellAICameraView { images in
+            CameraView { images in
                 capturedImages.append(contentsOf: images)
             }
         }
         .sheet(isPresented: $showingPhotoLibrary) {
-            ResellAIPhotoLibraryView { images in
-                capturedImages.append(contentsOf: images)
+            PhotosPicker(
+                selection: $selectedItems,
+                maxSelectionCount: 8 - capturedImages.count,
+                matching: .images
+            ) {
+                Text("Select Photos")
             }
         }
         .sheet(isPresented: $showingItemForm) {
             if let analysisResult = analysisResult {
                 ItemFormView(analysisResult: analysisResult) { item in
                     let addedItem = inventoryManager.addItem(item)
-                    // Sync to Firebase
                     firebaseService.syncInventoryItem(addedItem) { _ in }
                     resetAnalysis()
                 }
             }
         }
         .sheet(isPresented: $showingBarcodeLookup) {
-            ResellAIBarcodeScannerView { barcode in
+            BarcodeScannerView { barcode in
                 scannedBarcode = barcode
                 analyzeBarcodeItem(barcode)
             }
@@ -290,12 +347,28 @@ struct AnalysisView: View {
         .sheet(isPresented: $showingUsageLimit) {
             UsageLimitView()
         }
+        .onChange(of: selectedItems) { items in
+            Task {
+                var newImages: [UIImage] = []
+                
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        newImages.append(image)
+                    }
+                }
+                
+                DispatchQueue.main.async {
+                    capturedImages.append(contentsOf: newImages)
+                    selectedItems = []
+                }
+            }
+        }
     }
     
     private func analyzeImages() {
         guard !capturedImages.isEmpty else { return }
         
-        // Check usage limits
         if !firebaseService.canAnalyze {
             showingUsageLimit = true
             return
@@ -343,7 +416,6 @@ struct AnalysisView: View {
     private func createEbayListing() {
         guard let analysisResult = analysisResult else { return }
         
-        // Check listing limits
         if !firebaseService.canCreateListing {
             showingUsageLimit = true
             return
@@ -359,7 +431,6 @@ struct AnalysisView: View {
                 if success {
                     self.listingStatus = "✅ Listed on eBay successfully!"
                     
-                    // Add to inventory with eBay status
                     let newItem = InventoryItem(
                         itemNumber: self.inventoryManager.nextItemNumber,
                         name: analysisResult.name,
@@ -384,11 +455,8 @@ struct AnalysisView: View {
                     )
                     
                     let addedItem = self.inventoryManager.addItem(newItem)
-                    
-                    // Sync to Firebase
                     self.firebaseService.syncInventoryItem(addedItem) { _ in }
                     
-                    // Auto-reset after successful listing
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                         self.resetAnalysis()
                     }
@@ -397,10 +465,6 @@ struct AnalysisView: View {
                 }
             }
         }
-    }
-    
-    private func removeImage(at index: Int) {
-        capturedImages.remove(at: index)
     }
     
     private func resetAnalysis() {
@@ -412,7 +476,705 @@ struct AnalysisView: View {
     }
 }
 
-// MARK: - USAGE STATUS CARD - UPDATED FOR BOTH LIMITS
+// MARK: - QUEUE VIEW (INTEGRATED)
+struct QueueView: View {
+    @EnvironmentObject var businessService: BusinessService
+    @EnvironmentObject var firebaseService: FirebaseService
+    @EnvironmentObject var inventoryManager: InventoryManager
+    
+    @State private var showingAddPhotos = false
+    @State private var showingReviewView = false
+    @State private var showingUsageLimit = false
+    @State private var selectedItemForPhotos: UUID?
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                // Queue header
+                QueueHeaderView()
+                
+                if businessService.processingQueue.items.isEmpty {
+                    EmptyQueueView()
+                } else {
+                    // Queue items
+                    ScrollView {
+                        LazyVStack(spacing: 12) {
+                            ForEach(businessService.processingQueue.items.sorted { $0.position < $1.position }) { item in
+                                QueueItemCard(item: item)
+                            }
+                        }
+                        .padding()
+                    }
+                    
+                    // Queue actions
+                    QueueActionsView()
+                }
+            }
+            .navigationTitle("Processing Queue")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if businessService.processingQueue.items.count > 0 {
+                        Button("Clear All") {
+                            businessService.clearQueue()
+                        }
+                        .foregroundColor(.red)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddPhotos) {
+            MultiPhotoPickerView { photos in
+                businessService.addItemToQueue(photos: photos)
+            }
+        }
+        .sheet(isPresented: $showingReviewView) {
+            QueueReviewView()
+        }
+        .sheet(isPresented: $showingUsageLimit) {
+            UsageLimitView()
+        }
+    }
+    
+    @ViewBuilder
+    private func QueueHeaderView() -> some View {
+        VStack(spacing: 12) {
+            if businessService.processingQueue.isProcessing {
+                QueueProcessingStatus()
+            }
+            
+            if let user = firebaseService.currentUser {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Usage This Month")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Text("\(firebaseService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
+                            .font(.subheadline)
+                            .fontWeight(.bold)
+                            .foregroundColor(firebaseService.canAnalyze ? .green : .red)
+                    }
+                    
+                    Spacer()
+                    
+                    if !firebaseService.canAnalyze {
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("Limit Reached")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                            
+                            Button("Upgrade") {
+                                showingUsageLimit = true
+                            }
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue)
+                            .cornerRadius(8)
+                        }
+                    } else {
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("Queue Items")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            
+                            Text("\(businessService.processingQueue.items.count)")
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                        }
+                    }
+                }
+                .padding()
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+                .padding(.horizontal)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+    
+    @ViewBuilder
+    private func QueueProcessingStatus() -> some View {
+        VStack(spacing: 8) {
+            HStack {
+                ProgressView()
+                    .scaleEffect(0.8)
+                
+                Text("Processing Queue...")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                
+                Spacer()
+                
+                if let currentId = businessService.processingQueue.currentlyProcessing,
+                   let currentItem = businessService.processingQueue.items.first(where: { $0.id == currentId }) {
+                    Text("Item \(currentItem.position)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            
+            let totalItems = businessService.processingQueue.items.count
+            let completedItems = businessService.processingQueue.completedItems.count + businessService.processingQueue.failedItems.count
+            let progress = totalItems > 0 ? Double(completedItems) / Double(totalItems) : 0.0
+            
+            ProgressView(value: progress)
+                .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+            
+            HStack {
+                Text("\(completedItems)/\(totalItems) processed")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                if let estimatedTime = businessService.processingQueue.estimatedTimeRemaining {
+                    Text("~\(Int(estimatedTime/60))m remaining")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding()
+        .background(Color(.systemGray6))
+        .cornerRadius(12)
+        .padding(.horizontal)
+    }
+    
+    @ViewBuilder
+    private func EmptyQueueView() -> some View {
+        VStack(spacing: 24) {
+            Spacer()
+            
+            Image(systemName: "tray.full")
+                .font(.system(size: 64))
+                .foregroundColor(.secondary)
+            
+            VStack(spacing: 8) {
+                Text("Queue is Empty")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                
+                Text("Add items to analyze them in bulk. Perfect for processing multiple items from thrift stores or estate sales.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
+            
+            Button(action: { showingAddPhotos = true }) {
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Add First Item")
+                }
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(Color.blue)
+                .cornerRadius(16)
+            }
+            .padding(.horizontal)
+            
+            Spacer()
+        }
+    }
+    
+    @ViewBuilder
+    private func QueueActionsView() -> some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                Button("Add Another Item") {
+                    showingAddPhotos = true
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                
+                if businessService.processingQueue.completedItems.count > 0 {
+                    Button("Review Results") {
+                        showingReviewView = true
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+            }
+            
+            if !businessService.processingQueue.isProcessing && businessService.processingQueue.pendingItems.count > 0 {
+                Button("Start Processing Queue") {
+                    businessService.startProcessingQueue()
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(!firebaseService.canAnalyze)
+            } else if businessService.processingQueue.isProcessing {
+                Button("Pause Queue") {
+                    businessService.pauseProcessingQueue()
+                }
+                .buttonStyle(SecondaryButtonStyle())
+            }
+        }
+        .padding()
+        .background(Color(.systemGray6))
+    }
+}
+
+// MARK: - QUEUE ITEM CARD
+struct QueueItemCard: View {
+    let item: QueuedItem
+    @EnvironmentObject var businessService: BusinessService
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Item \(item.position)")
+                        .font(.headline)
+                        .fontWeight(.semibold)
+                    
+                    Text("\(item.photos.count) photo\(item.photos.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
+                Spacer()
+                
+                HStack(spacing: 6) {
+                    Image(systemName: item.status.systemImage)
+                        .foregroundColor(item.status.color)
+                    
+                    Text(item.status.rawValue)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(item.status.color)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(item.status.color.opacity(0.1))
+                .cornerRadius(8)
+            }
+            
+            if !item.uiImages.isEmpty {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
+                    ForEach(Array(item.uiImages.enumerated()), id: \.offset) { index, image in
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 70, height: 70)
+                            .clipped()
+                            .cornerRadius(8)
+                    }
+                }
+            }
+            
+            if item.status == .completed, let result = item.analysisResult {
+                QueueItemResultPreview(result: result)
+            } else if item.status == .failed {
+                QueueItemError(
+                    errorMessage: item.errorMessage ?? "Analysis failed",
+                    wasCountedAgainstLimit: item.wasCountedAgainstLimit
+                ) {
+                    businessService.retryQueueItem(itemId: item.id)
+                }
+            }
+            
+            HStack {
+                if item.status == .pending || item.status == .failed {
+                    Button("Remove") {
+                        businessService.removeFromQueue(itemId: item.id)
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.red)
+                }
+                
+                Spacer()
+                
+                if item.status == .processing {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                        Text("Analyzing...")
+                            .font(.caption)
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+        )
+    }
+}
+
+// MARK: - QUEUE ITEM RESULT PREVIEW
+struct QueueItemResultPreview: View {
+    let result: AnalysisResult
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(result.name)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .lineLimit(1)
+                
+                Spacer()
+                
+                Text("$\(Int(result.suggestedPrice))")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.green)
+            }
+            
+            if !result.brand.isEmpty {
+                Text(result.brand)
+                    .font(.caption)
+                    .foregroundColor(.blue)
+            }
+        }
+        .padding()
+        .background(Color.green.opacity(0.1))
+        .cornerRadius(8)
+    }
+}
+
+// MARK: - QUEUE ITEM ERROR
+struct QueueItemError: View {
+    let errorMessage: String
+    let wasCountedAgainstLimit: Bool
+    let onRetry: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.red)
+                
+                Text("Analysis Failed")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.red)
+                
+                Spacer()
+                
+                Button("Retry", action: onRetry)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.blue)
+                    .cornerRadius(8)
+            }
+            
+            Text(errorMessage)
+                .font(.caption)
+                .foregroundColor(.secondary)
+            
+            if !wasCountedAgainstLimit {
+                Text("Not counted against your monthly limit")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.green)
+            }
+        }
+        .padding()
+        .background(Color.red.opacity(0.1))
+        .cornerRadius(8)
+    }
+}
+
+// MARK: - MULTI PHOTO PICKER (FIXED)
+struct MultiPhotoPickerView: View {
+    let completion: ([UIImage]) -> Void
+    
+    @State private var selectedPhotos: [UIImage] = []
+    @State private var selectedItems: [PhotosPickerItem] = []
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 20) {
+                VStack(spacing: 8) {
+                    Text("Select Photos")
+                        .font(.title2)
+                        .fontWeight(.bold)
+                    
+                    Text("\(selectedPhotos.count)/8 photos selected")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+                
+                if !selectedPhotos.isEmpty {
+                    ScrollView {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 12) {
+                            ForEach(Array(selectedPhotos.enumerated()), id: \.offset) { index, image in
+                                ZStack(alignment: .topTrailing) {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(height: 120)
+                                        .clipped()
+                                        .cornerRadius(12)
+                                    
+                                    Button(action: {
+                                        selectedPhotos.remove(at: index)
+                                    }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.title3)
+                                            .foregroundColor(.white)
+                                            .background(Color.black.opacity(0.6))
+                                            .clipShape(Circle())
+                                    }
+                                    .padding(8)
+                                }
+                            }
+                        }
+                        .padding()
+                    }
+                }
+                
+                Spacer()
+                
+                VStack(spacing: 16) {
+                    PhotosPicker(
+                        selection: $selectedItems,
+                        maxSelectionCount: 8 - selectedPhotos.count,
+                        matching: .images
+                    ) {
+                        HStack {
+                            Image(systemName: selectedPhotos.isEmpty ? "photo.badge.plus" : "plus.circle")
+                            Text(selectedPhotos.isEmpty ? "Add Photos" : "Add More Photos")
+                        }
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(Color.blue)
+                        .cornerRadius(16)
+                    }
+                    .disabled(selectedPhotos.count >= 8)
+                    
+                    if !selectedPhotos.isEmpty {
+                        Button("Add to Queue") {
+                            completion(selectedPhotos)
+                            dismiss()
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                    }
+                }
+                .padding()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onChange(of: selectedItems) { items in
+            Task {
+                var newPhotos: [UIImage] = []
+                
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        newPhotos.append(image)
+                    }
+                }
+                
+                DispatchQueue.main.async {
+                    selectedPhotos.append(contentsOf: newPhotos)
+                    selectedItems = []
+                }
+            }
+        }
+    }
+}
+
+// MARK: - QUEUE REVIEW VIEW
+struct QueueReviewView: View {
+    @EnvironmentObject var businessService: BusinessService
+    @EnvironmentObject var inventoryManager: InventoryManager
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ForEach(businessService.processingQueue.completedItems) { item in
+                        if let result = item.analysisResult {
+                            QueueReviewItemCard(item: item, result: result)
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Review Results")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Close") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - QUEUE REVIEW ITEM CARD
+struct QueueReviewItemCard: View {
+    let item: QueuedItem
+    let result: AnalysisResult
+    @EnvironmentObject var inventoryManager: InventoryManager
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let firstImage = item.uiImages.first {
+                Image(uiImage: firstImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: 200)
+                    .clipped()
+                    .cornerRadius(12)
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                Text(result.name)
+                    .font(.headline)
+                    .fontWeight(.bold)
+                
+                if !result.brand.isEmpty {
+                    Text(result.brand)
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                }
+                
+                Text("$\(Int(result.suggestedPrice))")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundColor(.green)
+            }
+            
+            HStack(spacing: 12) {
+                Button("Add to Inventory") {
+                    addToInventory()
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                
+                Button("List on eBay") {
+                    // Handle eBay listing
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.1), radius: 2, x: 0, y: 1)
+        )
+    }
+    
+    private func addToInventory() {
+        let newItem = InventoryItem(
+            itemNumber: inventoryManager.nextItemNumber,
+            name: result.name,
+            category: result.category,
+            purchasePrice: 0,
+            suggestedPrice: result.suggestedPrice,
+            source: "Queue Analysis",
+            condition: result.condition,
+            title: result.title,
+            description: result.description,
+            keywords: result.keywords,
+            status: .toList,
+            dateAdded: Date(),
+            brand: result.brand,
+            exactModel: result.exactModel ?? "",
+            styleCode: result.styleCode ?? "",
+            size: result.size ?? "",
+            colorway: result.colorway ?? "",
+            releaseYear: result.releaseYear ?? "",
+            subcategory: result.subcategory ?? ""
+        )
+        
+        inventoryManager.addItem(newItem)
+    }
+}
+
+// MARK: - SUPPORTING VIEWS (Camera, etc.)
+struct CameraView: UIViewControllerRepresentable {
+    let completion: ([UIImage]) -> Void
+    
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+    
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(completion: completion)
+    }
+    
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let completion: ([UIImage]) -> Void
+        
+        init(completion: @escaping ([UIImage]) -> Void) {
+            self.completion = completion
+        }
+        
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                completion([image])
+            }
+            picker.dismiss(animated: true)
+        }
+        
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
+        }
+    }
+}
+
+struct BarcodeScannerView: View {
+    let completion: (String) -> Void
+    
+    var body: some View {
+        VStack {
+            Text("Barcode Scanner")
+                .font(.title2)
+                .padding()
+            
+            Text("Point camera at barcode")
+                .foregroundColor(.secondary)
+                .padding()
+            
+            Spacer()
+            
+            Button("Simulate Scan") {
+                completion("123456789")
+            }
+            .buttonStyle(.borderedProminent)
+            .padding()
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                completion("123456789")
+            }
+        }
+    }
+}
+
+// MARK: - USAGE STATUS CARD
 struct UsageStatusCard: View {
     let analysisCount: Int
     let analysisLimit: Int
@@ -442,7 +1204,6 @@ struct UsageStatusCard: View {
                     .cornerRadius(8)
             }
             
-            // Analysis usage
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Analyses")
@@ -461,7 +1222,6 @@ struct UsageStatusCard: View {
                     .progressViewStyle(LinearProgressViewStyle(tint: canAnalyze ? .green : .red))
             }
             
-            // Listing usage
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("eBay Listings")
@@ -583,35 +1343,6 @@ struct ActionButton: View {
     }
 }
 
-// MARK: - PHOTO GRID
-struct PhotoGrid: View {
-    let images: [UIImage]
-    let onRemove: (Int) -> Void
-    
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 12) {
-            ForEach(Array(images.enumerated()), id: \.offset) { index, image in
-                ZStack(alignment: .topTrailing) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(height: 120)
-                        .clipped()
-                        .cornerRadius(12)
-                    
-                    Button(action: { onRemove(index) }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.white)
-                            .background(Color.black.opacity(0.6))
-                            .clipShape(Circle())
-                    }
-                    .padding(8)
-                }
-            }
-        }
-    }
-}
-
 // MARK: - ANALYSIS BUTTON
 struct AnalysisButton: View {
     let isAnalyzing: Bool
@@ -644,14 +1375,13 @@ struct AnalysisButton: View {
     }
 }
 
-// MARK: - CLEAN ANALYSIS PROGRESS - NO MORE STEPS
+// MARK: - CLEAN ANALYSIS PROGRESS
 struct CleanAnalysisProgress: View {
     let progress: String
     let progressValue: Double
     
     var body: some View {
         VStack(spacing: 16) {
-            // Smooth progress bar
             VStack(spacing: 8) {
                 ProgressView(value: progressValue)
                     .progressViewStyle(LinearProgressViewStyle(tint: .blue))
@@ -671,7 +1401,7 @@ struct CleanAnalysisProgress: View {
     }
 }
 
-// MARK: - CLEAN ANALYSIS RESULT VIEW - REMOVED CONFIDENCE & CLEANED UP
+// MARK: - CLEAN ANALYSIS RESULT VIEW
 struct CleanAnalysisResultView: View {
     let analysis: AnalysisResult
     let images: [UIImage]
@@ -685,18 +1415,14 @@ struct CleanAnalysisResultView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Product identification - MORE SPECIFIC
             CleanProductCard(analysis: analysis)
             
-            // Market analysis - ONLY SHOW IF WE HAVE DATA
             if hasMarketData(analysis) {
                 CleanMarketCard(analysis: analysis)
             }
             
-            // Pricing recommendations
             CleanPricingCard(analysis: analysis)
             
-            // eBay Status and Actions
             EbayIntegrationCard(
                 isAuthenticated: isEbayAuthenticated,
                 isCreatingListing: isCreatingListing,
@@ -706,7 +1432,6 @@ struct CleanAnalysisResultView: View {
                 onCreateListing: onCreateEbayListing
             )
             
-            // Action buttons
             HStack(spacing: 12) {
                 Button("Add to Inventory", action: onAddToInventory)
                     .buttonStyle(SecondaryButtonStyle())
@@ -728,7 +1453,9 @@ struct CleanAnalysisResultView: View {
     }
 }
 
-// MARK: - CLEAN PRODUCT CARD - MORE SPECIFIC NAME
+// MARK: - REMAINING VIEW COMPONENTS (Dashboard, Inventory, etc.)
+// [All the existing view components like CleanProductCard, CleanMarketCard, etc. remain the same]
+
 struct CleanProductCard: View {
     let analysis: AnalysisResult
     
@@ -739,7 +1466,6 @@ struct CleanProductCard: View {
                 .fontWeight(.semibold)
             
             VStack(alignment: .leading, spacing: 8) {
-                // Show the full, specific product name
                 Text(analysis.name)
                     .font(.title2)
                     .fontWeight(.bold)
@@ -772,7 +1498,6 @@ struct CleanProductCard: View {
     }
 }
 
-// MARK: - CLEAN MARKET CARD - ONLY SHOW WHEN WE HAVE DATA
 struct CleanMarketCard: View {
     let analysis: AnalysisResult
     
@@ -836,7 +1561,6 @@ struct MarketStat: View {
     }
 }
 
-// MARK: - CLEAN PRICING CARD
 struct CleanPricingCard: View {
     let analysis: AnalysisResult
     
@@ -920,7 +1644,6 @@ struct PriceOption: View {
     }
 }
 
-// MARK: - EBAY INTEGRATION CARD - UPDATED
 struct EbayIntegrationCard: View {
     let isAuthenticated: Bool
     let isCreatingListing: Bool
@@ -1011,7 +1734,8 @@ struct EbayIntegrationCard: View {
     }
 }
 
-// MARK: - DASHBOARD VIEW WITH FIREBASE
+// MARK: - ALL OTHER VIEWS (Dashboard, Inventory, Settings, etc. remain the same)
+
 struct DashboardView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
@@ -1021,23 +1745,13 @@ struct DashboardView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 20) {
-                    // User plan status
                     if let user = firebaseService.currentUser {
-                        UserPlanCard(user: user) {
-                            // Show plan upgrade view
-                        }
+                        UserPlanCard(user: user) { }
                     }
                     
-                    // eBay Integration Status
                     EbayStatusCard(isAuthenticated: businessService.isEbayAuthenticated)
-                    
-                    // Stats overview
                     DashboardStats(inventoryManager: inventoryManager)
-                    
-                    // Recent items
                     RecentItemsCard(items: Array(inventoryManager.recentItems.prefix(3)))
-                    
-                    // Quick actions
                     QuickActionsCard()
                 }
                 .padding(20)
@@ -1047,7 +1761,6 @@ struct DashboardView: View {
     }
 }
 
-// MARK: - USER PLAN CARD
 struct UserPlanCard: View {
     let user: FirebaseUser
     let onUpgrade: () -> Void
@@ -1090,7 +1803,6 @@ struct UserPlanCard: View {
     }
 }
 
-// MARK: - REMAINING DASHBOARD COMPONENTS
 struct EbayStatusCard: View {
     let isAuthenticated: Bool
     
@@ -1138,29 +1850,10 @@ struct DashboardStats: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 12) {
-                StatCard(
-                    title: "Total Items",
-                    value: "\(inventoryManager.items.count)",
-                    color: .blue
-                )
-                
-                StatCard(
-                    title: "Listed",
-                    value: "\(inventoryManager.listedItems)",
-                    color: .green
-                )
-                
-                StatCard(
-                    title: "Sold",
-                    value: "\(inventoryManager.soldItems)",
-                    color: .purple
-                )
-                
-                StatCard(
-                    title: "Total Value",
-                    value: "$\(Int(inventoryManager.totalEstimatedValue))",
-                    color: .orange
-                )
+                StatCard(title: "Total Items", value: "\(inventoryManager.items.count)", color: .blue)
+                StatCard(title: "Listed", value: "\(inventoryManager.listedItems)", color: .green)
+                StatCard(title: "Sold", value: "\(inventoryManager.soldItems)", color: .purple)
+                StatCard(title: "Total Value", value: "$\(Int(inventoryManager.totalEstimatedValue))", color: .orange)
             }
         }
     }
@@ -1259,23 +1952,9 @@ struct QuickActionsCard: View {
                 .fontWeight(.semibold)
             
             VStack(spacing: 8) {
-                QuickActionButton(
-                    title: "Analyze New Item",
-                    icon: "viewfinder",
-                    color: .blue
-                ) { }
-                
-                QuickActionButton(
-                    title: "View Inventory",
-                    icon: "list.bullet",
-                    color: .green
-                ) { }
-                
-                QuickActionButton(
-                    title: "Export Data",
-                    icon: "square.and.arrow.up",
-                    color: .purple
-                ) { }
+                QuickActionButton(title: "Analyze New Item", icon: "viewfinder", color: .blue) { }
+                QuickActionButton(title: "View Inventory", icon: "list.bullet", color: .green) { }
+                QuickActionButton(title: "Export Data", icon: "square.and.arrow.up", color: .purple) { }
             }
         }
         .padding()
@@ -1319,7 +1998,7 @@ struct QuickActionButton: View {
     }
 }
 
-// MARK: - INVENTORY VIEW (remains largely the same)
+// MARK: - INVENTORY VIEW (UNCHANGED)
 struct InventoryView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     
@@ -1350,18 +2029,12 @@ struct InventoryView: View {
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            FilterChip(
-                                title: "All",
-                                isSelected: selectedStatus == nil
-                            ) {
+                            FilterChip(title: "All", isSelected: selectedStatus == nil) {
                                 selectedStatus = nil
                             }
                             
                             ForEach(ItemStatus.allCases, id: \.self) { status in
-                                FilterChip(
-                                    title: status.rawValue,
-                                    isSelected: selectedStatus == status
-                                ) {
+                                FilterChip(title: status.rawValue, isSelected: selectedStatus == status) {
                                     selectedStatus = status
                                 }
                             }
@@ -1399,10 +2072,7 @@ struct InventoryView: View {
             }
         }
         .sheet(isPresented: $showingFilters) {
-            InventoryFiltersView(
-                selectedStatus: $selectedStatus,
-                selectedCategory: $selectedCategory
-            )
+            InventoryFiltersView(selectedStatus: $selectedStatus, selectedCategory: $selectedCategory)
         }
     }
 }
@@ -1528,7 +2198,7 @@ struct EmptyInventoryView: View {
     }
 }
 
-// MARK: - STORAGE VIEW (remains the same)
+// MARK: - STORAGE VIEW (UNCHANGED)
 struct StorageView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     
@@ -1556,29 +2226,10 @@ struct StorageOverview: View {
                 .fontWeight(.semibold)
             
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 12) {
-                StatCard(
-                    title: "Total Items",
-                    value: "\(inventoryManager.items.count)",
-                    color: .blue
-                )
-                
-                StatCard(
-                    title: "Packaged",
-                    value: "\(inventoryManager.getPackagedItems().count)",
-                    color: .green
-                )
-                
-                StatCard(
-                    title: "Ready to Ship",
-                    value: "\(inventoryManager.getItemsReadyToList().count)",
-                    color: .orange
-                )
-                
-                StatCard(
-                    title: "Categories",
-                    value: "\(inventoryManager.getCategoryBreakdown().count)",
-                    color: .purple
-                )
+                StatCard(title: "Total Items", value: "\(inventoryManager.items.count)", color: .blue)
+                StatCard(title: "Packaged", value: "\(inventoryManager.getPackagedItems().count)", color: .green)
+                StatCard(title: "Ready to Ship", value: "\(inventoryManager.getItemsReadyToList().count)", color: .orange)
+                StatCard(title: "Categories", value: "\(inventoryManager.getCategoryBreakdown().count)", color: .purple)
             }
         }
     }
@@ -1638,7 +2289,7 @@ struct CategoryStorageCard: View {
     }
 }
 
-// MARK: - SETTINGS VIEW WITH FIREBASE
+// MARK: - SETTINGS VIEW (UNCHANGED)
 struct SettingsView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
@@ -1706,29 +2357,17 @@ struct SettingsView: View {
                 }
                 
                 Section("Business") {
-                    SettingsRow(
-                        title: "Export Data",
-                        icon: "square.and.arrow.up",
-                        color: .blue
-                    ) {
+                    SettingsRow(title: "Export Data", icon: "square.and.arrow.up", color: .blue) {
                         showingExport = true
                     }
                     
-                    SettingsRow(
-                        title: "API Configuration",
-                        icon: "network",
-                        color: .green
-                    ) {
+                    SettingsRow(title: "API Configuration", icon: "network", color: .green) {
                         showingAPIConfig = true
                     }
                 }
                 
                 Section("App") {
-                    SettingsRow(
-                        title: "About ResellAI",
-                        icon: "info.circle",
-                        color: .gray
-                    ) {
+                    SettingsRow(title: "About ResellAI", icon: "info.circle", color: .gray) {
                         showingAbout = true
                     }
                 }
@@ -1736,8 +2375,7 @@ struct SettingsView: View {
             .navigationTitle("Settings")
         }
         .sheet(isPresented: $showingExport) {
-            ExportView()
-                .environmentObject(inventoryManager)
+            ExportView().environmentObject(inventoryManager)
         }
         .sheet(isPresented: $showingAPIConfig) {
             APIConfigView()
@@ -1746,8 +2384,7 @@ struct SettingsView: View {
             AboutView()
         }
         .sheet(isPresented: $showingPlanFeatures) {
-            PlanFeaturesView()
-                .environmentObject(firebaseService)
+            PlanFeaturesView().environmentObject(firebaseService)
         }
     }
 }
@@ -1778,108 +2415,7 @@ struct SettingsRow: View {
     }
 }
 
-// MARK: - SUPPORTING VIEWS (Camera, Photo Library, etc. remain the same)
-struct ResellAICameraView: UIViewControllerRepresentable {
-    let completion: ([UIImage]) -> Void
-    
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.delegate = context.coordinator
-        return picker
-    }
-    
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(completion: completion)
-    }
-    
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let completion: ([UIImage]) -> Void
-        
-        init(completion: @escaping ([UIImage]) -> Void) {
-            self.completion = completion
-        }
-        
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-            if let image = info[.originalImage] as? UIImage {
-                completion([image])
-            }
-            picker.dismiss(animated: true)
-        }
-        
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            picker.dismiss(animated: true)
-        }
-    }
-}
-
-struct ResellAIPhotoLibraryView: UIViewControllerRepresentable {
-    let completion: ([UIImage]) -> Void
-    
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.delegate = context.coordinator
-        return picker
-    }
-    
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(completion: completion)
-    }
-    
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let completion: ([UIImage]) -> Void
-        
-        init(completion: @escaping ([UIImage]) -> Void) {
-            self.completion = completion
-        }
-        
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-            if let image = info[.originalImage] as? UIImage {
-                completion([image])
-            }
-            picker.dismiss(animated: true)
-        }
-        
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            picker.dismiss(animated: true)
-        }
-    }
-}
-
-struct ResellAIBarcodeScannerView: View {
-    let completion: (String) -> Void
-    
-    var body: some View {
-        VStack {
-            Text("Barcode Scanner")
-                .font(.title2)
-                .padding()
-            
-            Text("Point camera at barcode")
-                .foregroundColor(.secondary)
-                .padding()
-            
-            Spacer()
-            
-            Button("Simulate Scan") {
-                completion("123456789")
-            }
-            .buttonStyle(.borderedProminent)
-            .padding()
-        }
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                completion("123456789")
-            }
-        }
-    }
-}
-
+// MARK: - SUPPORTING FORMS AND VIEWS
 struct ItemFormView: View {
     let analysisResult: AnalysisResult
     let completion: (InventoryItem) -> Void
@@ -2184,7 +2720,7 @@ struct FeatureRow: View {
     }
 }
 
-// MARK: - COMPLETE FIREBASE AUTH VIEW WITH ALL METHODS
+// MARK: - FIREBASE AUTH VIEWS (UNCHANGED)
 struct FirebaseAuthView: View {
     @EnvironmentObject var firebaseService: FirebaseService
     @State private var showingSignUp = false
@@ -2198,7 +2734,6 @@ struct FirebaseAuthView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 30) {
-                // App branding
                 VStack(spacing: 12) {
                     Image(systemName: "brain.head.profile")
                         .font(.system(size: 64))
@@ -2224,7 +2759,6 @@ struct FirebaseAuthView: View {
                     }
                 } else {
                     VStack(spacing: 16) {
-                        // Apple Sign-In
                         Button(action: {
                             firebaseService.signInWithApple()
                         }) {
@@ -2241,7 +2775,6 @@ struct FirebaseAuthView: View {
                             .cornerRadius(12)
                         }
                         
-                        // Google Sign-In
                         Button(action: {
                             firebaseService.signInWithGoogle()
                         }) {
@@ -2264,7 +2797,6 @@ struct FirebaseAuthView: View {
                             .cornerRadius(12)
                         }
                         
-                        // Divider
                         HStack {
                             Rectangle()
                                 .frame(height: 1)
@@ -2279,7 +2811,6 @@ struct FirebaseAuthView: View {
                                 .foregroundColor(.gray.opacity(0.3))
                         }
                         
-                        // Email/Password fields
                         VStack(spacing: 12) {
                             TextField("Email", text: $email)
                                 .textFieldStyle(RoundedBorderTextFieldStyle())
@@ -2296,7 +2827,6 @@ struct FirebaseAuthView: View {
                             }
                         }
                         
-                        // Action button
                         Button(action: {
                             if showingSignUp {
                                 createAccount()
@@ -2314,7 +2844,6 @@ struct FirebaseAuthView: View {
                         }
                         .disabled(email.isEmpty || password.isEmpty || (showingSignUp && confirmPassword.isEmpty))
                         
-                        // Toggle sign up/in
                         Button(action: {
                             showingSignUp.toggle()
                             clearFields()
@@ -2327,7 +2856,6 @@ struct FirebaseAuthView: View {
                 
                 Spacer()
                 
-                // Terms
                 Text("By continuing, you agree to our Terms of Service and Privacy Policy")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -2343,8 +2871,7 @@ struct FirebaseAuthView: View {
             Text(errorMessage)
         }
         .sheet(isPresented: $showingFaceIDSetup) {
-            FaceIDSetupView()
-                .environmentObject(firebaseService)
+            FaceIDSetupView().environmentObject(firebaseService)
         }
         .onChange(of: firebaseService.authError) { error in
             if let error = error {
@@ -2353,7 +2880,6 @@ struct FirebaseAuthView: View {
             }
         }
         .onAppear {
-            // Check if Face ID setup should be offered
             if firebaseService.isAuthenticated && firebaseService.isFaceIDAvailable && !firebaseService.isFaceIDEnabled {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     showingFaceIDSetup = true
@@ -2399,7 +2925,6 @@ struct FirebaseAuthView: View {
     }
 }
 
-// MARK: - FACE ID SETUP VIEW
 struct FaceIDSetupView: View {
     @EnvironmentObject var firebaseService: FirebaseService
     @Environment(\.dismiss) private var dismiss
@@ -2412,7 +2937,6 @@ struct FaceIDSetupView: View {
             VStack(spacing: 24) {
                 Spacer()
                 
-                // Face ID icon
                 Image(systemName: "faceid")
                     .font(.system(size: 80))
                     .foregroundColor(.blue)
@@ -2430,7 +2954,6 @@ struct FaceIDSetupView: View {
                 }
                 
                 VStack(spacing: 16) {
-                    // Benefits
                     VStack(alignment: .leading, spacing: 12) {
                         BenefitRow(icon: "lock.shield", text: "Secure biometric authentication")
                         BenefitRow(icon: "bolt", text: "Instant app access")
@@ -2446,7 +2969,6 @@ struct FaceIDSetupView: View {
                 Spacer()
                 
                 VStack(spacing: 12) {
-                    // Enable Face ID button
                     Button(action: enableFaceID) {
                         HStack {
                             if isEnabling {
@@ -2468,7 +2990,6 @@ struct FaceIDSetupView: View {
                     }
                     .disabled(isEnabling)
                     
-                    // Skip button
                     Button("Maybe Later") {
                         dismiss()
                     }
@@ -2528,7 +3049,6 @@ struct BenefitRow: View {
     }
 }
 
-// MARK: - USAGE LIMIT VIEW (Updated)
 struct UsageLimitView: View {
     @EnvironmentObject var firebaseService: FirebaseService
     @Environment(\.dismiss) private var dismiss
@@ -2536,7 +3056,6 @@ struct UsageLimitView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 24) {
-                // Limit reached icon
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 64))
                     .foregroundColor(.orange)
@@ -2567,7 +3086,6 @@ struct UsageLimitView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                // Current plan info
                 if let user = firebaseService.currentUser {
                     VStack(spacing: 12) {
                         Text("Current Plan: \(user.currentPlan.displayName)")
@@ -2576,7 +3094,6 @@ struct UsageLimitView: View {
                         Text("Resets in \(firebaseService.daysUntilReset) days")
                             .foregroundColor(.secondary)
                         
-                        // Usage breakdown
                         VStack(spacing: 8) {
                             HStack {
                                 Text("Analyses:")
@@ -2599,7 +3116,6 @@ struct UsageLimitView: View {
                     .cornerRadius(12)
                 }
                 
-                // Upgrade options
                 VStack(spacing: 16) {
                     Text("Upgrade for More Access")
                         .font(.headline)
@@ -2661,7 +3177,6 @@ struct UsageLimitView: View {
     }
 }
 
-// MARK: - PLAN FEATURES VIEW (Updated)
 struct PlanFeaturesView: View {
     @EnvironmentObject var firebaseService: FirebaseService
     @Environment(\.dismiss) private var dismiss
@@ -2687,7 +3202,6 @@ struct PlanFeaturesView: View {
                         )
                     }
                     
-                    // Face ID section
                     if firebaseService.isFaceIDAvailable {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Security Features")
@@ -2850,7 +3364,6 @@ struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - PREVIEW
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
