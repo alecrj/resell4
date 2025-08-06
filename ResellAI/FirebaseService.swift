@@ -29,6 +29,8 @@ struct FirebaseUser: Codable, Identifiable {
     let currentPlan: UserPlan
     let monthlyAnalysisCount: Int
     let monthlyAnalysisLimit: Int
+    let monthlyListingCount: Int
+    let monthlyListingLimit: Int
     let subscriptionStatus: SubscriptionStatus
     
     // eBay Integration
@@ -53,6 +55,8 @@ struct FirebaseUser: Codable, Identifiable {
         self.currentPlan = .free
         self.monthlyAnalysisCount = 0
         self.monthlyAnalysisLimit = 10
+        self.monthlyListingCount = 0
+        self.monthlyListingLimit = 5
         self.subscriptionStatus = .free
         
         // Default eBay status
@@ -88,6 +92,8 @@ struct FirebaseUser: Codable, Identifiable {
         self.currentPlan = .free
         self.monthlyAnalysisCount = 0
         self.monthlyAnalysisLimit = 10
+        self.monthlyListingCount = 0
+        self.monthlyListingLimit = 5
         self.subscriptionStatus = .free
         self.hasEbayConnected = false
         self.ebayUserId = nil
@@ -118,6 +124,14 @@ enum UserPlan: String, CaseIterable, Codable {
         }
     }
     
+    var monthlyListingLimit: Int {
+        switch self {
+        case .free: return 5
+        case .starter: return 50
+        case .pro: return 200
+        }
+    }
+    
     var price: String {
         switch self {
         case .free: return "Free"
@@ -129,11 +143,11 @@ enum UserPlan: String, CaseIterable, Codable {
     var features: [String] {
         switch self {
         case .free:
-            return ["10 AI analyses/month", "Manual eBay posting", "Basic inventory tracking"]
+            return ["10 AI analyses/month", "5 eBay listings/month", "Basic inventory tracking"]
         case .starter:
-            return ["100 AI analyses/month", "Auto eBay posting", "Advanced inventory", "Priority support"]
+            return ["100 AI analyses/month", "50 eBay listings/month", "Auto eBay posting", "Advanced inventory", "Priority support"]
         case .pro:
-            return ["400 AI analyses/month", "Full automation", "Analytics dashboard", "Premium support", "Bulk operations"]
+            return ["400 AI analyses/month", "200 eBay listings/month", "Full automation", "Analytics dashboard", "Premium support", "Bulk operations"]
         }
     }
 }
@@ -207,7 +221,9 @@ class FirebaseService: NSObject, ObservableObject {
     
     // Usage tracking
     @Published var monthlyAnalysisCount = 0
+    @Published var monthlyListingCount = 0
     @Published var canAnalyze = true
+    @Published var canCreateListing = true
     @Published var daysUntilReset = 0
     
     // Face ID
@@ -289,6 +305,7 @@ class FirebaseService: NSObject, ObservableObject {
                 if let firebaseUser = firebaseUser {
                     self?.currentUser = firebaseUser
                     self?.isFaceIDEnabled = firebaseUser.hasFaceIDEnabled
+                    self?.monthlyListingCount = firebaseUser.monthlyListingCount
                 } else {
                     // Create new user record
                     let newUser = FirebaseUser(from: user)
@@ -307,7 +324,9 @@ class FirebaseService: NSObject, ObservableObject {
         isAuthenticated = false
         isLoading = false
         monthlyAnalysisCount = 0
+        monthlyListingCount = 0
         canAnalyze = true
+        canCreateListing = true
         authError = nil
         isFaceIDEnabled = false
     }
@@ -546,7 +565,9 @@ class FirebaseService: NSObject, ObservableObject {
         
         let currentPlan = UserPlan(rawValue: data["currentPlan"] as? String ?? "free") ?? .free
         let monthlyAnalysisCount = data["monthlyAnalysisCount"] as? Int ?? 0
-        let monthlyAnalysisLimit = data["monthlyAnalysisLimit"] as? Int ?? 10
+        let monthlyAnalysisLimit = data["monthlyAnalysisLimit"] as? Int ?? currentPlan.monthlyLimit
+        let monthlyListingCount = data["monthlyListingCount"] as? Int ?? 0
+        let monthlyListingLimit = data["monthlyListingLimit"] as? Int ?? currentPlan.monthlyListingLimit
         let subscriptionStatus = SubscriptionStatus(rawValue: data["subscriptionStatus"] as? String ?? "free") ?? .free
         
         let hasEbayConnected = data["hasEbayConnected"] as? Bool ?? false
@@ -567,6 +588,8 @@ class FirebaseService: NSObject, ObservableObject {
             currentPlan: currentPlan,
             monthlyAnalysisCount: monthlyAnalysisCount,
             monthlyAnalysisLimit: monthlyAnalysisLimit,
+            monthlyListingCount: monthlyListingCount,
+            monthlyListingLimit: monthlyListingLimit,
             subscriptionStatus: subscriptionStatus,
             hasEbayConnected: hasEbayConnected,
             ebayUserId: ebayUserId,
@@ -589,6 +612,8 @@ class FirebaseService: NSObject, ObservableObject {
             "currentPlan": user.currentPlan.rawValue,
             "monthlyAnalysisCount": user.monthlyAnalysisCount,
             "monthlyAnalysisLimit": user.monthlyAnalysisLimit,
+            "monthlyListingCount": user.monthlyListingCount,
+            "monthlyListingLimit": user.monthlyListingLimit,
             "subscriptionStatus": user.subscriptionStatus.rawValue,
             "hasEbayConnected": user.hasEbayConnected,
             "ebayUserId": user.ebayUserId ?? NSNull(),
@@ -612,10 +637,14 @@ class FirebaseService: NSObject, ObservableObject {
         
         print("📊 Tracking usage: \(action)")
         
-        // Update local count
+        // Update local counts
         if action == "analysis" {
             monthlyAnalysisCount += 1
             updateAnalysisLimit()
+            updateUserUsageCount()
+        } else if action == "listing_created" {
+            monthlyListingCount += 1
+            updateListingLimit()
             updateUserUsageCount()
         }
         
@@ -643,6 +672,7 @@ class FirebaseService: NSObject, ObservableObject {
         
         db.collection("users").document(user.id).updateData([
             "monthlyAnalysisCount": monthlyAnalysisCount,
+            "monthlyListingCount": monthlyListingCount,
             "lastLoginAt": Timestamp()
         ]) { error in
             if let error = error {
@@ -658,14 +688,14 @@ class FirebaseService: NSObject, ObservableObject {
         
         let currentMonth = getCurrentMonth()
         
-        // Load from Firestore
+        // Load analysis usage
         db.collection("usage")
             .whereField("userId", isEqualTo: user.id)
             .whereField("month", isEqualTo: currentMonth)
             .whereField("action", isEqualTo: "analysis")
             .getDocuments { [weak self] snapshot, error in
                 if let error = error {
-                    print("❌ Error loading monthly usage: \(error)")
+                    print("❌ Error loading monthly analysis usage: \(error)")
                     return
                 }
                 
@@ -674,7 +704,27 @@ class FirebaseService: NSObject, ObservableObject {
                 DispatchQueue.main.async {
                     self?.monthlyAnalysisCount = count
                     self?.updateAnalysisLimit()
-                    print("📈 Monthly usage loaded: \(count)")
+                    print("📈 Monthly analysis usage loaded: \(count)")
+                }
+            }
+        
+        // Load listing usage
+        db.collection("usage")
+            .whereField("userId", isEqualTo: user.id)
+            .whereField("month", isEqualTo: currentMonth)
+            .whereField("action", isEqualTo: "listing_created")
+            .getDocuments { [weak self] snapshot, error in
+                if let error = error {
+                    print("❌ Error loading monthly listing usage: \(error)")
+                    return
+                }
+                
+                let count = snapshot?.documents.count ?? 0
+                
+                DispatchQueue.main.async {
+                    self?.monthlyListingCount = count
+                    self?.updateListingLimit()
+                    print("📈 Monthly listing usage loaded: \(count)")
                 }
             }
     }
@@ -683,14 +733,25 @@ class FirebaseService: NSObject, ObservableObject {
         guard let user = currentUser else { return }
         
         canAnalyze = monthlyAnalysisCount < user.monthlyAnalysisLimit
+        updateDaysUntilReset()
         
-        // Calculate days until reset
+        print("🎯 Analysis limit: \(monthlyAnalysisCount)/\(user.monthlyAnalysisLimit), Can analyze: \(canAnalyze)")
+    }
+    
+    private func updateListingLimit() {
+        guard let user = currentUser else { return }
+        
+        canCreateListing = monthlyListingCount < user.monthlyListingLimit
+        updateDaysUntilReset()
+        
+        print("📤 Listing limit: \(monthlyListingCount)/\(user.monthlyListingLimit), Can create listing: \(canCreateListing)")
+    }
+    
+    private func updateDaysUntilReset() {
         let calendar = Calendar.current
         let now = Date()
         let startOfNextMonth = calendar.dateInterval(of: .month, for: now)?.end ?? now
         daysUntilReset = calendar.dateComponents([.day], from: now, to: startOfNextMonth).day ?? 0
-        
-        print("🎯 Analysis limit: \(monthlyAnalysisCount)/\(user.monthlyAnalysisLimit), Can analyze: \(canAnalyze)")
     }
     
     private func getCurrentMonth() -> String {
@@ -850,6 +911,7 @@ class FirebaseService: NSObject, ObservableObject {
         db.collection("users").document(user.id).updateData([
             "currentPlan": plan.rawValue,
             "monthlyAnalysisLimit": plan.monthlyLimit,
+            "monthlyListingLimit": plan.monthlyListingLimit,
             "subscriptionStatus": "active",
             "lastLoginAt": Timestamp()
         ]) { [weak self] error in
@@ -872,6 +934,8 @@ class FirebaseService: NSObject, ObservableObject {
                         currentPlan: plan,
                         monthlyAnalysisCount: updatedUser.monthlyAnalysisCount,
                         monthlyAnalysisLimit: plan.monthlyLimit,
+                        monthlyListingCount: updatedUser.monthlyListingCount,
+                        monthlyListingLimit: plan.monthlyListingLimit,
                         subscriptionStatus: .active,
                         hasEbayConnected: updatedUser.hasEbayConnected,
                         ebayUserId: updatedUser.ebayUserId,
@@ -883,6 +947,7 @@ class FirebaseService: NSObject, ObservableObject {
                     DispatchQueue.main.async {
                         self?.currentUser = newUser
                         self?.updateAnalysisLimit()
+                        self?.updateListingLimit()
                     }
                 }
                 
@@ -894,16 +959,16 @@ class FirebaseService: NSObject, ObservableObject {
     // MARK: - HELPER METHODS
     var needsUpgrade: Bool {
         guard let user = currentUser else { return false }
-        return monthlyAnalysisCount >= user.monthlyAnalysisLimit
+        return monthlyAnalysisCount >= user.monthlyAnalysisLimit || monthlyListingCount >= user.monthlyListingLimit
     }
     
     var upgradeMessage: String {
         guard let user = currentUser else { return "" }
         
         if user.currentPlan == .free {
-            return "Upgrade to Starter ($19/month) for 100 analyses"
+            return "Upgrade to Starter ($19/month) for 100 analyses & 50 listings"
         } else if user.currentPlan == .starter {
-            return "Upgrade to Pro ($49/month) for 400 analyses"
+            return "Upgrade to Pro ($49/month) for 400 analyses & 200 listings"
         } else {
             return "Contact support for enterprise pricing"
         }
@@ -912,7 +977,9 @@ class FirebaseService: NSObject, ObservableObject {
     func resetMonthlyUsage() {
         // For testing - resets usage
         monthlyAnalysisCount = 0
+        monthlyListingCount = 0
         updateAnalysisLimit()
+        updateListingLimit()
         print("🔄 Monthly usage reset")
     }
     
@@ -1080,7 +1147,7 @@ extension FirebaseService {
 
 // Add extension to safely initialize FirebaseUser with all parameters
 extension FirebaseUser {
-    init(id: String, email: String?, displayName: String?, photoURL: String? = nil, provider: String, createdAt: Date, lastLoginAt: Date, currentPlan: UserPlan, monthlyAnalysisCount: Int, monthlyAnalysisLimit: Int, subscriptionStatus: SubscriptionStatus, hasEbayConnected: Bool, ebayUserId: String?, ebayTokenExpiry: Date?, hasFaceIDEnabled: Bool, lastFaceIDCheck: Date?) {
+    init(id: String, email: String?, displayName: String?, photoURL: String? = nil, provider: String, createdAt: Date, lastLoginAt: Date, currentPlan: UserPlan, monthlyAnalysisCount: Int, monthlyAnalysisLimit: Int, monthlyListingCount: Int, monthlyListingLimit: Int, subscriptionStatus: SubscriptionStatus, hasEbayConnected: Bool, ebayUserId: String?, ebayTokenExpiry: Date?, hasFaceIDEnabled: Bool, lastFaceIDCheck: Date?) {
         self.id = id
         self.email = email
         self.displayName = displayName
@@ -1091,6 +1158,8 @@ extension FirebaseUser {
         self.currentPlan = currentPlan
         self.monthlyAnalysisCount = monthlyAnalysisCount
         self.monthlyAnalysisLimit = monthlyAnalysisLimit
+        self.monthlyListingCount = monthlyListingCount
+        self.monthlyListingLimit = monthlyListingLimit
         self.subscriptionStatus = subscriptionStatus
         self.hasEbayConnected = hasEbayConnected
         self.ebayUserId = ebayUserId

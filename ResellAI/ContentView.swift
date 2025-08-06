@@ -186,13 +186,16 @@ struct AnalysisView: View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 24) {
-                    // Usage status
+                    // Usage status - showing both analysis and listing limits
                     if let user = firebaseService.currentUser {
                         UsageStatusCard(
-                            currentCount: firebaseService.monthlyAnalysisCount,
-                            limit: user.monthlyAnalysisLimit,
+                            analysisCount: firebaseService.monthlyAnalysisCount,
+                            analysisLimit: user.monthlyAnalysisLimit,
+                            listingCount: firebaseService.monthlyListingCount,
+                            listingLimit: user.monthlyListingLimit,
                             plan: user.currentPlan,
                             canAnalyze: firebaseService.canAnalyze,
+                            canCreateListing: firebaseService.canCreateListing,
                             daysUntilReset: firebaseService.daysUntilReset
                         ) {
                             showingUsageLimit = true
@@ -247,6 +250,7 @@ struct AnalysisView: View {
                             isEbayAuthenticated: businessService.isEbayAuthenticated,
                             isCreatingListing: isCreatingListing,
                             listingStatus: listingStatus,
+                            canCreateListing: firebaseService.canCreateListing,
                             onAddToInventory: addToInventory,
                             onAuthenticateEbay: authenticateEbay,
                             onCreateEbayListing: createEbayListing
@@ -340,6 +344,12 @@ struct AnalysisView: View {
     private func createEbayListing() {
         guard let analysisResult = analysisResult else { return }
         
+        // Check listing limits
+        if !firebaseService.canCreateListing {
+            showingUsageLimit = true
+            return
+        }
+        
         isCreatingListing = true
         listingStatus = "Creating eBay listing..."
         
@@ -403,12 +413,15 @@ struct AnalysisView: View {
     }
 }
 
-// MARK: - USAGE STATUS CARD
+// MARK: - USAGE STATUS CARD - UPDATED FOR BOTH LIMITS
 struct UsageStatusCard: View {
-    let currentCount: Int
-    let limit: Int
+    let analysisCount: Int
+    let analysisLimit: Int
+    let listingCount: Int
+    let listingLimit: Int
     let plan: UserPlan
     let canAnalyze: Bool
+    let canCreateListing: Bool
     let daysUntilReset: Int
     let onUpgrade: () -> Void
     
@@ -430,15 +443,52 @@ struct UsageStatusCard: View {
                     .cornerRadius(8)
             }
             
+            // Analysis usage
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("AI Analyses")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    Spacer()
+                    
+                    Text("\(analysisCount) / \(analysisLimit)")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundColor(canAnalyze ? .green : .red)
+                }
+                
+                ProgressView(value: Double(analysisCount), total: Double(analysisLimit))
+                    .progressViewStyle(LinearProgressViewStyle(tint: canAnalyze ? .green : .red))
+            }
+            
+            // Listing usage
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("eBay Listings")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    
+                    Spacer()
+                    
+                    Text("\(listingCount) / \(listingLimit)")
+                        .font(.subheadline)
+                        .fontWeight(.bold)
+                        .foregroundColor(canCreateListing ? .green : .red)
+                }
+                
+                ProgressView(value: Double(listingCount), total: Double(listingLimit))
+                    .progressViewStyle(LinearProgressViewStyle(tint: canCreateListing ? .green : .red))
+            }
+            
             HStack {
-                Text("\(currentCount) / \(limit)")
-                    .font(.title2)
-                    .fontWeight(.bold)
-                    .foregroundColor(canAnalyze ? .green : .red)
-                
-                Spacer()
-                
-                if !canAnalyze {
+                if !canAnalyze || !canCreateListing {
+                    Text("Limits reached • Resets in \(daysUntilReset) days")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
+                    
                     Button("Upgrade", action: onUpgrade)
                         .font(.caption)
                         .fontWeight(.semibold)
@@ -447,20 +497,13 @@ struct UsageStatusCard: View {
                         .padding(.vertical, 6)
                         .background(Color.blue)
                         .cornerRadius(12)
+                } else {
+                    Text("Resets in \(daysUntilReset) days")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    
+                    Spacer()
                 }
-            }
-            
-            ProgressView(value: Double(currentCount), total: Double(limit))
-                .progressViewStyle(LinearProgressViewStyle(tint: canAnalyze ? .green : .red))
-            
-            if !canAnalyze {
-                Text("Monthly limit reached • Resets in \(daysUntilReset) days")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else {
-                Text("Resets in \(daysUntilReset) days")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
         }
         .padding()
@@ -629,13 +672,14 @@ struct AnalysisProgress: View {
     }
 }
 
-// MARK: - ANALYSIS RESULT VIEW WITH EBAY FEATURES
+// MARK: - ANALYSIS RESULT VIEW WITH EBAY FEATURES - UPDATED
 struct AnalysisResultView: View {
     let analysis: AnalysisResult
     let images: [UIImage]
     let isEbayAuthenticated: Bool
     let isCreatingListing: Bool
     let listingStatus: String
+    let canCreateListing: Bool
     let onAddToInventory: () -> Void
     let onAuthenticateEbay: () -> Void
     let onCreateEbayListing: () -> Void
@@ -656,6 +700,7 @@ struct AnalysisResultView: View {
                 isAuthenticated: isEbayAuthenticated,
                 isCreatingListing: isCreatingListing,
                 listingStatus: listingStatus,
+                canCreateListing: canCreateListing,
                 onAuthenticate: onAuthenticateEbay,
                 onCreateListing: onCreateEbayListing
             )
@@ -668,7 +713,7 @@ struct AnalysisResultView: View {
                 if isEbayAuthenticated {
                     Button(isCreatingListing ? "Creating..." : "List on eBay", action: onCreateEbayListing)
                         .buttonStyle(PrimaryButtonStyle())
-                        .disabled(isCreatingListing)
+                        .disabled(isCreatingListing || !canCreateListing)
                 } else {
                     Button("Connect eBay", action: onAuthenticateEbay)
                         .buttonStyle(PrimaryButtonStyle())
@@ -678,11 +723,12 @@ struct AnalysisResultView: View {
     }
 }
 
-// MARK: - EBAY INTEGRATION CARD
+// MARK: - EBAY INTEGRATION CARD - UPDATED
 struct EbayIntegrationCard: View {
     let isAuthenticated: Bool
     let isCreatingListing: Bool
     let listingStatus: String
+    let canCreateListing: Bool
     let onAuthenticate: () -> Void
     let onCreateListing: () -> Void
     
@@ -720,6 +766,12 @@ struct EbayIntegrationCard: View {
                     Label("Professional photos & SEO optimization", systemImage: "photo.badge.plus")
                         .font(.subheadline)
                         .foregroundColor(.purple)
+                    
+                    if !canCreateListing {
+                        Label("Monthly listing limit reached - upgrade to continue", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.orange)
+                    }
                 }
                 
                 if !listingStatus.isEmpty {
@@ -2499,13 +2551,31 @@ struct UsageLimitView: View {
                     .font(.system(size: 64))
                     .foregroundColor(.orange)
                 
-                Text("Monthly Limit Reached")
-                    .font(.title)
-                    .fontWeight(.bold)
-                
-                Text("You've used all \(firebaseService.currentUser?.monthlyAnalysisLimit ?? 0) AI analyses for this month.")
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
+                if !firebaseService.canAnalyze {
+                    Text("Analysis Limit Reached")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("You've used all \(firebaseService.currentUser?.monthlyAnalysisLimit ?? 0) AI analyses for this month.")
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                } else if !firebaseService.canCreateListing {
+                    Text("Listing Limit Reached")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("You've used all \(firebaseService.currentUser?.monthlyListingLimit ?? 0) eBay listings for this month.")
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Monthly Limits")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    
+                    Text("View your current usage and upgrade options.")
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.secondary)
+                }
                 
                 // Current plan info
                 if let user = firebaseService.currentUser {
@@ -2515,6 +2585,24 @@ struct UsageLimitView: View {
                         
                         Text("Resets in \(firebaseService.daysUntilReset) days")
                             .foregroundColor(.secondary)
+                        
+                        // Usage breakdown
+                        VStack(spacing: 8) {
+                            HStack {
+                                Text("Analyses:")
+                                Spacer()
+                                Text("\(firebaseService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
+                                    .foregroundColor(firebaseService.canAnalyze ? .green : .red)
+                            }
+                            
+                            HStack {
+                                Text("Listings:")
+                                Spacer()
+                                Text("\(firebaseService.monthlyListingCount)/\(user.monthlyListingLimit)")
+                                    .foregroundColor(firebaseService.canCreateListing ? .green : .red)
+                            }
+                        }
+                        .font(.subheadline)
                     }
                     .padding()
                     .background(Color(.systemGray6))
@@ -2523,7 +2611,7 @@ struct UsageLimitView: View {
                 
                 // Upgrade options
                 VStack(spacing: 16) {
-                    Text("Upgrade for More Analyses")
+                    Text("Upgrade for More Access")
                         .font(.headline)
                         .foregroundColor(.blue)
                     
@@ -2536,7 +2624,7 @@ struct UsageLimitView: View {
                                     Text(plan.displayName)
                                         .fontWeight(.semibold)
                                     
-                                    Text("\(plan.monthlyLimit) analyses/month")
+                                    Text("\(plan.monthlyLimit) analyses • \(plan.monthlyListingLimit) listings")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
