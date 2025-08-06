@@ -233,18 +233,17 @@ struct AnalysisView: View {
                         }
                     }
                     
-                    // Analysis progress
+                    // Analysis progress - CLEANED UP
                     if isAnalyzing {
-                        AnalysisProgress(
+                        CleanAnalysisProgress(
                             progress: businessService.analysisProgress,
-                            currentStep: businessService.currentStep,
-                            totalSteps: businessService.totalSteps
+                            progressValue: businessService.progressValue
                         )
                     }
                     
-                    // Analysis result with eBay integration
+                    // Analysis result with eBay integration - CLEANED UP
                     if let analysisResult = analysisResult {
-                        AnalysisResultView(
+                        CleanAnalysisResultView(
                             analysis: analysisResult,
                             images: capturedImages,
                             isEbayAuthenticated: businessService.isEbayAuthenticated,
@@ -446,7 +445,7 @@ struct UsageStatusCard: View {
             // Analysis usage
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("AI Analyses")
+                    Text("Analyses")
                         .font(.subheadline)
                         .fontWeight(.medium)
                     
@@ -527,7 +526,7 @@ struct CameraSection: View {
     
     var body: some View {
         VStack(spacing: 24) {
-            Text("Take photos of your item to get real eBay comps and pricing")
+            Text("Take photos of your item to get instant pricing and market analysis")
                 .font(.system(size: 18, weight: .medium))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -645,24 +644,24 @@ struct AnalysisButton: View {
     }
 }
 
-// MARK: - ANALYSIS PROGRESS
-struct AnalysisProgress: View {
+// MARK: - CLEAN ANALYSIS PROGRESS - NO MORE STEPS
+struct CleanAnalysisProgress: View {
     let progress: String
-    let currentStep: Int
-    let totalSteps: Int
+    let progressValue: Double
     
     var body: some View {
-        VStack(spacing: 12) {
-            ProgressView(value: Double(currentStep), total: Double(totalSteps))
-                .progressViewStyle(LinearProgressViewStyle(tint: .blue))
-            
-            Text(progress)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(.primary)
-            
-            Text("Step \(currentStep) of \(totalSteps)")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.secondary)
+        VStack(spacing: 16) {
+            // Smooth progress bar
+            VStack(spacing: 8) {
+                ProgressView(value: progressValue)
+                    .progressViewStyle(LinearProgressViewStyle(tint: .blue))
+                    .scaleEffect(y: 2)
+                
+                Text(progress)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.primary)
+                    .animation(.easeInOut, value: progress)
+            }
         }
         .padding()
         .background(
@@ -672,8 +671,8 @@ struct AnalysisProgress: View {
     }
 }
 
-// MARK: - ANALYSIS RESULT VIEW WITH EBAY FEATURES - UPDATED
-struct AnalysisResultView: View {
+// MARK: - CLEAN ANALYSIS RESULT VIEW - REMOVED CONFIDENCE & CLEANED UP
+struct CleanAnalysisResultView: View {
     let analysis: AnalysisResult
     let images: [UIImage]
     let isEbayAuthenticated: Bool
@@ -686,14 +685,16 @@ struct AnalysisResultView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Item identification
-            ItemIdentificationCard(analysis: analysis)
+            // Product identification - MORE SPECIFIC
+            CleanProductCard(analysis: analysis)
             
-            // Market analysis
-            MarketAnalysisCard(analysis: analysis)
+            // Market analysis - ONLY SHOW IF WE HAVE DATA
+            if hasMarketData(analysis) {
+                CleanMarketCard(analysis: analysis)
+            }
             
             // Pricing recommendations
-            PricingCard(analysis: analysis)
+            CleanPricingCard(analysis: analysis)
             
             // eBay Status and Actions
             EbayIntegrationCard(
@@ -721,113 +722,28 @@ struct AnalysisResultView: View {
             }
         }
     }
-}
-
-// MARK: - EBAY INTEGRATION CARD - UPDATED
-struct EbayIntegrationCard: View {
-    let isAuthenticated: Bool
-    let isCreatingListing: Bool
-    let listingStatus: String
-    let canCreateListing: Bool
-    let onAuthenticate: () -> Void
-    let onCreateListing: () -> Void
     
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("eBay Integration")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                
-                Spacer()
-                
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(isAuthenticated ? Color.green : Color.orange)
-                        .frame(width: 8, height: 8)
-                    
-                    Text(isAuthenticated ? "Connected" : "Not Connected")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(isAuthenticated ? .green : .orange)
-                }
-            }
-            
-            if isAuthenticated {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Ready to create optimized eBay listing", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline)
-                        .foregroundColor(.green)
-                    
-                    Label("Automatic title, description & pricing", systemImage: "wand.and.rays")
-                        .font(.subheadline)
-                        .foregroundColor(.blue)
-                    
-                    Label("Professional photos & SEO optimization", systemImage: "photo.badge.plus")
-                        .font(.subheadline)
-                        .foregroundColor(.purple)
-                    
-                    if !canCreateListing {
-                        Label("Monthly listing limit reached - upgrade to continue", systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline)
-                            .foregroundColor(.orange)
-                    }
-                }
-                
-                if !listingStatus.isEmpty {
-                    Text(listingStatus)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(listingStatus.contains("✅") ? .green : .red)
-                        .padding(.top, 4)
-                }
-                
-                if isCreatingListing {
-                    HStack {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
-                            .scaleEffect(0.8)
-                        
-                        Text("Creating your eBay listing...")
-                            .font(.subheadline)
-                            .foregroundColor(.blue)
-                    }
-                    .padding(.top, 8)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("Connect eBay to automatically create listings", systemImage: "link")
-                        .font(.subheadline)
-                        .foregroundColor(.orange)
-                    
-                    Label("One-click posting with optimal pricing", systemImage: "bolt.fill")
-                        .font(.subheadline)
-                        .foregroundColor(.blue)
-                }
-            }
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemGray6))
-        )
+    private func hasMarketData(_ analysis: AnalysisResult) -> Bool {
+        return (analysis.soldListingsCount ?? 0) > 0 || (analysis.competitorCount ?? 0) > 0
     }
 }
 
-// MARK: - OTHER CARDS (ItemIdentificationCard, MarketAnalysisCard, PricingCard remain the same)
-struct ItemIdentificationCard: View {
+// MARK: - CLEAN PRODUCT CARD - MORE SPECIFIC NAME
+struct CleanProductCard: View {
     let analysis: AnalysisResult
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Product Identification")
+            Text("Product Identified")
                 .font(.headline)
                 .fontWeight(.semibold)
             
             VStack(alignment: .leading, spacing: 8) {
+                // Show the full, specific product name
                 Text(analysis.name)
                     .font(.title2)
                     .fontWeight(.bold)
+                    .foregroundColor(.primary)
                 
                 if !analysis.brand.isEmpty {
                     Label(analysis.brand, systemImage: "tag.fill")
@@ -846,12 +762,6 @@ struct ItemIdentificationCard: View {
                         .font(.subheadline)
                         .foregroundColor(.orange)
                 }
-                
-                if let confidence = analysis.aiConfidence {
-                    Label("AI Confidence: \(Int(confidence * 100))%", systemImage: "brain.head.profile")
-                        .font(.subheadline)
-                        .foregroundColor(.purple)
-                }
             }
         }
         .padding()
@@ -862,51 +772,39 @@ struct ItemIdentificationCard: View {
     }
 }
 
-struct MarketAnalysisCard: View {
+// MARK: - CLEAN MARKET CARD - ONLY SHOW WHEN WE HAVE DATA
+struct CleanMarketCard: View {
     let analysis: AnalysisResult
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Market Analysis")
+            Text("Market Data")
                 .font(.headline)
                 .fontWeight(.semibold)
             
-            if let soldCount = analysis.soldListingsCount, soldCount > 0 {
-                HStack(spacing: 16) {
+            HStack(spacing: 16) {
+                if let soldCount = analysis.soldListingsCount, soldCount > 0 {
                     MarketStat(
-                        title: "Sold Items",
+                        title: "Recent Sales",
                         value: "\(soldCount)",
                         color: .blue
                     )
-                    
+                }
+                
+                if let activeCount = analysis.competitorCount, activeCount > 0 {
                     MarketStat(
-                        title: "Avg Price",
-                        value: "$\(Int(analysis.averagePrice ?? 0))",
+                        title: "Active Listings",
+                        value: "\(activeCount)",
                         color: .green
-                    )
-                    
-                    MarketStat(
-                        title: "Confidence",
-                        value: "\(Int((analysis.marketConfidence ?? 0) * 100))%",
-                        color: .purple
                     )
                 }
                 
                 if let demandLevel = analysis.demandLevel {
-                    Label("Demand Level: \(demandLevel)", systemImage: "chart.bar.fill")
-                        .font(.subheadline)
-                        .foregroundColor(.orange)
-                        .padding(.top, 4)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("No recent sales data found", systemImage: "exclamationmark.triangle")
-                        .font(.subheadline)
-                        .foregroundColor(.orange)
-                    
-                    Text("Pricing based on category and brand analysis")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    MarketStat(
+                        title: "Demand",
+                        value: demandLevel,
+                        color: demandLevel == "High" ? .green : demandLevel == "Medium" ? .orange : .red
+                    )
                 }
             }
         }
@@ -938,7 +836,8 @@ struct MarketStat: View {
     }
 }
 
-struct PricingCard: View {
+// MARK: - CLEAN PRICING CARD
+struct CleanPricingCard: View {
     let analysis: AnalysisResult
     
     var body: some View {
@@ -1017,6 +916,97 @@ struct PriceOption: View {
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(color, lineWidth: isHighlighted ? 0 : 1)
+        )
+    }
+}
+
+// MARK: - EBAY INTEGRATION CARD - UPDATED
+struct EbayIntegrationCard: View {
+    let isAuthenticated: Bool
+    let isCreatingListing: Bool
+    let listingStatus: String
+    let canCreateListing: Bool
+    let onAuthenticate: () -> Void
+    let onCreateListing: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("eBay Integration")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                
+                Spacer()
+                
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(isAuthenticated ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    
+                    Text(isAuthenticated ? "Connected" : "Not Connected")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(isAuthenticated ? .green : .orange)
+                }
+            }
+            
+            if isAuthenticated {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Ready to create listing automatically", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.green)
+                    
+                    Label("Optimized title, description & pricing", systemImage: "wand.and.rays")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                    
+                    Label("Professional photos & SEO optimization", systemImage: "photo.badge.plus")
+                        .font(.subheadline)
+                        .foregroundColor(.purple)
+                    
+                    if !canCreateListing {
+                        Label("Monthly listing limit reached - upgrade to continue", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.orange)
+                    }
+                }
+                
+                if !listingStatus.isEmpty {
+                    Text(listingStatus)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(listingStatus.contains("✅") ? .green : .red)
+                        .padding(.top, 4)
+                }
+                
+                if isCreatingListing {
+                    HStack {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            .scaleEffect(0.8)
+                        
+                        Text("Creating your eBay listing...")
+                            .font(.subheadline)
+                            .foregroundColor(.blue)
+                    }
+                    .padding(.top, 8)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Connect eBay to automatically create listings", systemImage: "link")
+                        .font(.subheadline)
+                        .foregroundColor(.orange)
+                    
+                    Label("One-click posting with optimal pricing", systemImage: "bolt.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.blue)
+                }
+            }
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemGray6))
         )
     }
 }
@@ -1100,7 +1090,7 @@ struct UserPlanCard: View {
     }
 }
 
-// MARK: - REMAINING DASHBOARD COMPONENTS (EbayStatusCard, DashboardStats, etc. remain the same)
+// MARK: - REMAINING DASHBOARD COMPONENTS
 struct EbayStatusCard: View {
     let isAuthenticated: Bool
     
@@ -2066,9 +2056,9 @@ struct APIConfigView: View {
                     .fontWeight(.semibold)
                 
                 VStack(alignment: .leading, spacing: 12) {
-                    ConfigStatusRow(title: "OpenAI", isConfigured: !Configuration.openAIKey.isEmpty)
+                    ConfigStatusRow(title: "Product Analysis", isConfigured: !Configuration.openAIKey.isEmpty)
                     ConfigStatusRow(title: "Google Sheets", isConfigured: !Configuration.googleScriptURL.isEmpty)
-                    ConfigStatusRow(title: "RapidAPI", isConfigured: !Configuration.rapidAPIKey.isEmpty)
+                    ConfigStatusRow(title: "Market Data", isConfigured: !Configuration.rapidAPIKey.isEmpty)
                     ConfigStatusRow(title: "eBay API", isConfigured: Configuration.isEbayConfigured)
                 }
                 .padding()
@@ -2140,7 +2130,7 @@ struct AboutView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     
-                    Text("The complete reselling automation tool powered by AI. Take a photo, get real eBay comps, and automatically create optimized listings.")
+                    Text("The complete reselling automation tool powered by advanced analysis. Take a photo, get real market comps, and automatically create optimized listings.")
                         .font(.body)
                         .multilineTextAlignment(.center)
                         .padding()
@@ -2150,7 +2140,7 @@ struct AboutView: View {
                             .font(.headline)
                             .fontWeight(.semibold)
                         
-                        FeatureRow(icon: "viewfinder", text: "AI-powered product identification")
+                        FeatureRow(icon: "viewfinder", text: "Advanced product identification")
                         FeatureRow(icon: "chart.bar", text: "Real eBay sold comps analysis")
                         FeatureRow(icon: "dollarsign.circle", text: "Market-driven pricing")
                         FeatureRow(icon: "network", text: "Automatic eBay listing creation")
@@ -2218,7 +2208,7 @@ struct FirebaseAuthView: View {
                         .font(.largeTitle)
                         .fontWeight(.bold)
                     
-                    Text("AI-Powered Reselling Automation")
+                    Text("Reselling Automation Powered by Advanced Analysis")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -2556,7 +2546,7 @@ struct UsageLimitView: View {
                         .font(.title)
                         .fontWeight(.bold)
                     
-                    Text("You've used all \(firebaseService.currentUser?.monthlyAnalysisLimit ?? 0) AI analyses for this month.")
+                    Text("You've used all \(firebaseService.currentUser?.monthlyAnalysisLimit ?? 0) analyses for this month.")
                         .multilineTextAlignment(.center)
                         .foregroundColor(.secondary)
                 } else if !firebaseService.canCreateListing {
