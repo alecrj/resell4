@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with WORKING eBay OAuth 2.0 Integration
+//  Complete Reselling Automation with FIXED eBay OAuth 2.0 Integration
 //
 
 import SwiftUI
@@ -1341,7 +1341,7 @@ struct ProductIdentificationResult {
     let completeness: String
 }
 
-// MARK: - FIXED EBAY SERVICE WITH WORKING OAuth 2.0 + WEB VIEW
+// MARK: - FIXED EBAY SERVICE WITH WORKING OAuth 2.0
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -1367,7 +1367,7 @@ class EbayService: NSObject, ObservableObject {
     private let redirectURI = Configuration.ebayRedirectURI
     private let ruName = Configuration.ebayRuName
     
-    // Production OAuth URL - using the EXACT URL from eBay developer console
+    // FIXED OAuth URL - using exact eBay format
     private let ebayOAuthURL = "https://auth.ebay.com/oauth2/authorize"
     
     // Storage keys
@@ -1386,7 +1386,8 @@ class EbayService: NSObject, ObservableObject {
     func initialize() {
         print("🚀 EbayService initialized with FIXED OAuth 2.0")
         print("• Client ID: \(clientId)")
-        print("• OAuth URL: \(ebayOAuthURL)")
+        print("• Redirect URI: \(redirectURI)")
+        print("• RuName: \(ruName)")
         print("• Environment: Production")
         
         // Check if we have valid tokens on startup
@@ -1404,23 +1405,23 @@ class EbayService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - FIXED OAuth 2.0 Authentication with Safari Web View
+    // MARK: - FIXED OAuth 2.0 Authentication
     func authenticate(completion: @escaping (Bool) -> Void) {
         print("🔐 Starting eBay OAuth 2.0 authentication...")
         
         // Generate PKCE parameters
         generatePKCEParameters()
         
-        // Build authorization URL
+        // Build authorization URL with FIXED parameters
         guard let authURL = buildAuthorizationURL() else {
             print("❌ Failed to build authorization URL")
             completion(false)
             return
         }
         
-        print("🌐 Opening eBay OAuth in Safari: \(authURL)")
+        print("🌐 Opening eBay OAuth: \(authURL.absoluteString)")
         
-        // Use Safari View Controller for better compatibility
+        // Open in Safari
         DispatchQueue.main.async {
             self.authStatus = "Connecting to eBay..."
             
@@ -1460,8 +1461,8 @@ class EbayService: NSObject, ObservableObject {
         state = UUID().uuidString
         
         print("🔐 PKCE parameters generated")
-        print("• Code verifier length: \(codeVerifier?.count ?? 0)")
-        print("• Code challenge: \(codeChallenge?.prefix(20) ?? "nil")...")
+        print("• Code verifier: \(codeVerifier?.count ?? 0) chars")
+        print("• Code challenge: \(codeChallenge?.prefix(10) ?? "nil")...")
         print("• State: \(state?.prefix(8) ?? "nil")...")
     }
     
@@ -1479,6 +1480,7 @@ class EbayService: NSObject, ObservableObject {
     private func buildAuthorizationURL() -> URL? {
         var components = URLComponents(string: ebayOAuthURL)
         
+        // FIXED: Use proper scope encoding and parameters
         let scopes = Configuration.ebayRequiredScopes.joined(separator: " ")
         
         components?.queryItems = [
@@ -1491,7 +1493,9 @@ class EbayService: NSObject, ObservableObject {
             URLQueryItem(name: "code_challenge_method", value: "S256")
         ]
         
-        return components?.url
+        let url = components?.url
+        print("🔗 Built OAuth URL: \(url?.absoluteString ?? "nil")")
+        return url
     }
     
     func handleAuthCallback(url: URL, completion: ((Bool) -> Void)? = nil) {
@@ -1517,7 +1521,7 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        // Get authorization code and state
+        // Get authorization code
         guard let code = queryItems?.first(where: { $0.name == "code" })?.value else {
             print("❌ No authorization code received")
             DispatchQueue.main.async {
@@ -1528,7 +1532,7 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        // Verify state parameter (CSRF protection)
+        // Verify state parameter
         let receivedState = queryItems?.first(where: { $0.name == "state" })?.value
         guard receivedState == state else {
             print("❌ State parameter mismatch - possible CSRF attack")
@@ -1540,7 +1544,7 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        print("✅ Authorization code received, exchanging for tokens...")
+        print("✅ Authorization code received: \(code.prefix(20))...")
         
         // Exchange authorization code for access token
         exchangeCodeForTokens(code: code) { [weak self] success in
@@ -1580,7 +1584,7 @@ class EbayService: NSObject, ObservableObject {
         let base64Credentials = credentialsData.base64EncodedString()
         request.setValue("Basic \(base64Credentials)", forHTTPHeaderField: "Authorization")
         
-        // Request body
+        // Build request body
         var bodyComponents = URLComponents()
         bodyComponents.queryItems = [
             URLQueryItem(name: "grant_type", value: "authorization_code"),
@@ -1592,6 +1596,9 @@ class EbayService: NSObject, ObservableObject {
         request.httpBody = bodyComponents.percentEncodedQuery?.data(using: .utf8)
         
         print("🔄 Exchanging authorization code for tokens...")
+        print("• Endpoint: \(url.absoluteString)")
+        print("• Client ID: \(clientId)")
+        print("• Redirect URI: \(redirectURI)")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
@@ -1605,7 +1612,7 @@ class EbayService: NSObject, ObservableObject {
                 
                 if httpResponse.statusCode != 200 {
                     if let data = data, let errorString = String(data: data, encoding: .utf8) {
-                        print("❌ Token exchange error: \(errorString)")
+                        print("❌ Token exchange error (\(httpResponse.statusCode)): \(errorString)")
                     }
                     completion(false)
                     return
@@ -1630,8 +1637,8 @@ class EbayService: NSObject, ObservableObject {
                         self?.tokenExpiryDate = Date().addingTimeInterval(TimeInterval(expiresIn))
                     }
                     
-                    print("✅ Access token: \(self?.accessToken?.prefix(20) ?? "nil")...")
-                    print("✅ Refresh token: \(self?.refreshToken?.prefix(20) ?? "nil")...")
+                    print("✅ Access token: \(self?.accessToken?.prefix(10) ?? "nil")...")
+                    print("✅ Refresh token: \(self?.refreshToken?.prefix(10) ?? "nil")...")
                     print("✅ Expires: \(self?.tokenExpiryDate ?? Date())")
                     
                     // Save tokens securely

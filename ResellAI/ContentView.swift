@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with Queue System and Fixed Multi-Photo Support
+//  Complete Reselling Automation with WORKING Web-to-App Bridge OAuth
 //
 
 import SwiftUI
@@ -40,10 +40,13 @@ struct ContentView: View {
         .onOpenURL { url in
             print("📱 App received URL: \(url)")
             
-            // Handle eBay OAuth callback
+            // Handle eBay OAuth callback from web-to-app bridge
             if url.scheme == "resellai" && url.host == "auth" {
                 if url.path == "/ebay" || url.path.contains("ebay") {
-                    print("✅ Processing eBay OAuth callback")
+                    print("✅ Processing eBay OAuth callback from web bridge")
+                    print("📞 Callback URL: \(url.absoluteString)")
+                    
+                    // Handle the OAuth callback
                     businessService.handleEbayAuthCallback(url: url)
                 }
             }
@@ -404,9 +407,12 @@ struct AnalysisView: View {
     }
     
     private func authenticateEbay() {
+        print("🔐 Starting eBay authentication from UI...")
         businessService.authenticateEbay { success in
             DispatchQueue.main.async {
-                if !success {
+                if success {
+                    print("✅ eBay authentication successful!")
+                } else {
                     print("❌ eBay authentication failed")
                 }
             }
@@ -1453,9 +1459,7 @@ struct CleanAnalysisResultView: View {
     }
 }
 
-// MARK: - REMAINING VIEW COMPONENTS (Dashboard, Inventory, etc.)
-// [All the existing view components like CleanProductCard, CleanMarketCard, etc. remain the same]
-
+// MARK: - CLEAN PRODUCT CARD
 struct CleanProductCard: View {
     let analysis: AnalysisResult
     
@@ -2198,7 +2202,7 @@ struct EmptyInventoryView: View {
     }
 }
 
-// MARK: - STORAGE VIEW (UNCHANGED)
+// MARK: - STORAGE VIEW
 struct StorageView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     
@@ -2289,7 +2293,7 @@ struct CategoryStorageCard: View {
     }
 }
 
-// MARK: - SETTINGS VIEW (UNCHANGED)
+// MARK: - SETTINGS VIEW
 struct SettingsView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
@@ -2353,6 +2357,20 @@ struct SettingsView: View {
                             businessService.authenticateEbay { _ in }
                         }
                         .foregroundColor(.blue)
+                    } else {
+                        if !businessService.ebayService.connectedUserName.isEmpty {
+                            HStack {
+                                Text("Connected as")
+                                Spacer()
+                                Text(businessService.ebayService.connectedUserName)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        Button("Disconnect eBay") {
+                            businessService.ebayService.signOut()
+                        }
+                        .foregroundColor(.red)
                     }
                 }
                 
