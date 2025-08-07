@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with FIXED eBay OAuth 2.0 Integration
+//  Complete Reselling Automation with FIXED Web-to-App Bridge eBay OAuth 2.0
 //
 
 import SwiftUI
@@ -1341,7 +1341,7 @@ struct ProductIdentificationResult {
     let completeness: String
 }
 
-// MARK: - FIXED EBAY SERVICE WITH WORKING OAuth 2.0
+// MARK: - FIXED EBAY SERVICE WITH WORKING Web-to-App Bridge OAuth 2.0
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -1364,10 +1364,10 @@ class EbayService: NSObject, ObservableObject {
     // Configuration from Configuration.swift
     private let clientId = Configuration.ebayAPIKey
     private let clientSecret = Configuration.ebayClientSecret
-    private let redirectURI = Configuration.ebayRedirectURI
+    private let redirectURI = Configuration.ebayRedirectURI // Web bridge URL
     private let ruName = Configuration.ebayRuName
     
-    // FIXED OAuth URL - using exact eBay format
+    // FIXED OAuth URL - using web redirect URI
     private let ebayOAuthURL = "https://auth.ebay.com/oauth2/authorize"
     
     // Storage keys
@@ -1384,9 +1384,10 @@ class EbayService: NSObject, ObservableObject {
     }
     
     func initialize() {
-        print("🚀 EbayService initialized with FIXED OAuth 2.0")
+        print("🚀 EbayService initialized with FIXED Web-to-App Bridge OAuth 2.0")
         print("• Client ID: \(clientId)")
-        print("• Redirect URI: \(redirectURI)")
+        print("• Web Redirect URI: \(redirectURI)")
+        print("• App Callback URI: \(Configuration.ebayAppScheme)")
         print("• RuName: \(ruName)")
         print("• Environment: Production")
         
@@ -1405,14 +1406,14 @@ class EbayService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - FIXED OAuth 2.0 Authentication
+    // MARK: - FIXED OAuth 2.0 Authentication with Web-to-App Bridge
     func authenticate(completion: @escaping (Bool) -> Void) {
-        print("🔐 Starting eBay OAuth 2.0 authentication...")
+        print("🔐 Starting eBay OAuth 2.0 authentication with Web-to-App Bridge...")
         
         // Generate PKCE parameters
         generatePKCEParameters()
         
-        // Build authorization URL with FIXED parameters
+        // Build authorization URL with web redirect URI
         guard let authURL = buildAuthorizationURL() else {
             print("❌ Failed to build authorization URL")
             completion(false)
@@ -1480,12 +1481,12 @@ class EbayService: NSObject, ObservableObject {
     private func buildAuthorizationURL() -> URL? {
         var components = URLComponents(string: ebayOAuthURL)
         
-        // FIXED: Use proper scope encoding and parameters
+        // FIXED: Use web redirect URI for initial OAuth
         let scopes = Configuration.ebayRequiredScopes.joined(separator: " ")
         
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "redirect_uri", value: redirectURI), // Web bridge URL
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "scope", value: scopes),
@@ -1499,9 +1500,9 @@ class EbayService: NSObject, ObservableObject {
     }
     
     func handleAuthCallback(url: URL, completion: ((Bool) -> Void)? = nil) {
-        print("📞 Processing eBay OAuth callback: \(url)")
+        print("📞 Processing eBay OAuth callback from web-to-app bridge: \(url)")
         
-        // Close Safari view controller
+        // Close Safari view controller if still open
         DispatchQueue.main.async {
             self.safariViewController?.dismiss(animated: true)
         }
@@ -1515,6 +1516,17 @@ class EbayService: NSObject, ObservableObject {
             let errorDescription = queryItems?.first(where: { $0.name == "error_description" })?.value ?? "Unknown error"
             DispatchQueue.main.async {
                 self.authStatus = "Authentication failed: \(errorDescription)"
+                self.authCompletion?(false)
+                completion?(false)
+            }
+            return
+        }
+        
+        // Check for result parameter (error from web bridge)
+        if let result = queryItems?.first(where: { $0.name == "result" })?.value, result == "error" {
+            print("❌ Web bridge reported error")
+            DispatchQueue.main.async {
+                self.authStatus = "Authentication failed"
                 self.authCompletion?(false)
                 completion?(false)
             }
@@ -1544,7 +1556,7 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        print("✅ Authorization code received: \(code.prefix(20))...")
+        print("✅ Authorization code received from web bridge: \(code.prefix(20))...")
         
         // Exchange authorization code for access token
         exchangeCodeForTokens(code: code) { [weak self] success in
@@ -1552,7 +1564,7 @@ class EbayService: NSObject, ObservableObject {
                 if success {
                     self?.isAuthenticated = true
                     self?.authStatus = "Connected to eBay"
-                    print("🎉 eBay OAuth authentication successful!")
+                    print("🎉 eBay Web-to-App Bridge OAuth authentication successful!")
                     
                     // Fetch user info
                     self?.fetchUserInfo()
@@ -1584,12 +1596,12 @@ class EbayService: NSObject, ObservableObject {
         let base64Credentials = credentialsData.base64EncodedString()
         request.setValue("Basic \(base64Credentials)", forHTTPHeaderField: "Authorization")
         
-        // Build request body
+        // Build request body - MUST use web redirect URI for token exchange
         var bodyComponents = URLComponents()
         bodyComponents.queryItems = [
             URLQueryItem(name: "grant_type", value: "authorization_code"),
             URLQueryItem(name: "code", value: code),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "redirect_uri", value: redirectURI), // Web bridge URL
             URLQueryItem(name: "code_verifier", value: codeVerifier)
         ]
         
@@ -1921,7 +1933,7 @@ class GoogleSheetsService: ObservableObject {
     }
 }
 
-// MARK: - INVENTORY MANAGER (UNCHANGED FROM PREVIOUS VERSION)
+// MARK: - INVENTORY MANAGER (FIXED FIRESTORE QUERY)
 class InventoryManager: ObservableObject {
     @Published var items: [InventoryItem] = []
     
