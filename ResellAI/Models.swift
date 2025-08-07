@@ -2,7 +2,7 @@
 //  Models.swift
 //  ResellAI
 //
-//  Ultimate Consolidated Models with Queue System - FAANG Level Architecture
+//  Ultimate Consolidated Models with Queue System - Fixed QueueStatus Parsing
 //
 
 import SwiftUI
@@ -152,6 +152,7 @@ struct QueuedItem: Identifiable, Codable {
     }
 }
 
+// MARK: - FIXED QUEUE STATUS WITH PROPER CODABLE SUPPORT
 enum QueueStatus: String, CaseIterable, Codable {
     case pending = "Pending"
     case processing = "Processing"
@@ -174,6 +175,29 @@ enum QueueStatus: String, CaseIterable, Codable {
         case .completed: return "checkmark.circle.fill"
         case .failed: return "exclamationmark.triangle.fill"
         }
+    }
+    
+    // MARK: - Custom Codable Implementation to Handle Legacy Data
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        
+        // Handle legacy "Needs Review" status that was causing crashes
+        switch rawValue {
+        case "Pending": self = .pending
+        case "Processing": self = .processing
+        case "Completed": self = .completed
+        case "Failed": self = .failed
+        case "Needs Review": self = .completed // Convert legacy status
+        default:
+            print("⚠️ Unknown queue status: \(rawValue), defaulting to pending")
+            self = .pending
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(self.rawValue)
     }
 }
 
