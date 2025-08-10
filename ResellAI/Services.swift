@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with FIXED Web-to-App Bridge eBay OAuth 2.0
+//  Complete Reselling Automation with FULL eBay Listing Creation
 //
 
 import SwiftUI
@@ -932,7 +932,7 @@ class BusinessService: ObservableObject {
         return queries
     }
     
-    // MARK: - EBAY LISTING CREATION (UPDATED TO USE REAL EBAY SERVICE)
+    // MARK: - EBAY LISTING CREATION (FULLY IMPLEMENTED)
     func createEbayListing(from analysis: AnalysisResult, images: [UIImage], completion: @escaping (Bool, String?) -> Void) {
         guard let firebase = firebaseService else {
             completion(false, "Firebase not initialized")
@@ -1341,7 +1341,7 @@ struct ProductIdentificationResult {
     let completeness: String
 }
 
-// MARK: - FIXED EBAY SERVICE WITH WORKING Web-to-App Bridge OAuth 2.0
+// MARK: - COMPLETE EBAY SERVICE WITH FULL LISTING CREATION
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -1361,13 +1361,15 @@ class EbayService: NSObject, ObservableObject {
     // Safari View Controller for OAuth
     private var safariViewController: SFSafariViewController?
     
-    // Configuration from Configuration.swift
-    private let clientId = Configuration.ebayAPIKey
-    private let clientSecret = Configuration.ebayClientSecret
-    private let redirectURI = Configuration.ebayRedirectURI // Web bridge URL
-    private let ruName = Configuration.ebayRuName
+    // eBay OAuth Configuration - Using your actual credentials
+    private let clientId = "AlecRodr-resell-PRD-d0bc91504-be3e553a"
+    private let clientSecret = "PRD-0bc91504af12-57f0-49aa-8bb7-763a"
+    private let devId = "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
+    private let ruName = "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
+    private let redirectURI = "https://resellai-auth.vercel.app/ebay-callback" // Your web bridge
+    private let appScheme = "resellai://auth/ebay" // App callback
     
-    // FIXED OAuth URL - using web redirect URI
+    // Production eBay OAuth URL
     private let ebayOAuthURL = "https://auth.ebay.com/oauth2/authorize"
     
     // Storage keys
@@ -1384,29 +1386,40 @@ class EbayService: NSObject, ObservableObject {
     }
     
     func initialize() {
-        print("🚀 EbayService initialized with FIXED Web-to-App Bridge OAuth 2.0")
+        print("🚀 EbayService initialized - COMPLETE eBay Integration")
+        print("=== eBay Configuration ===")
         print("• Client ID: \(clientId)")
-        print("• Web Redirect URI: \(redirectURI)")
-        print("• App Callback URI: \(Configuration.ebayAppScheme)")
+        print("• Dev ID: \(devId)")
         print("• RuName: \(ruName)")
-        print("• Environment: Production")
+        print("• Web Redirect URI: \(redirectURI)")
+        print("• App Callback URI: \(appScheme)")
+        print("• Environment: PRODUCTION")
+        print("========================")
         
         // Check if we have valid tokens on startup
         if let token = accessToken, !token.isEmpty, let expiry = tokenExpiryDate, expiry > Date() {
-            print("✅ Valid eBay tokens found")
+            print("✅ Valid eBay access token found")
+            print("• Token expires: \(expiry)")
+            
             isAuthenticated = true
             authStatus = "Connected to eBay"
-            connectedUserName = UserDefaults.standard.string(forKey: userNameKey) ?? "eBay User"
+            connectedUserName = UserDefaults.standard.string(forKey: userNameKey) ?? ""
             
-            // Fetch user info to verify connection
-            fetchUserInfo()
+            if connectedUserName.isEmpty {
+                print("👤 Fetching eBay user info...")
+                fetchUserInfo()
+            } else {
+                print("👤 Connected as: \(connectedUserName)")
+            }
         } else {
             print("⚠️ No valid eBay tokens - user needs to authenticate")
+            print("• Access token present: \(accessToken != nil)")
+            print("• Token expired: \(tokenExpiryDate?.timeIntervalSinceNow ?? 0 < 0)")
             clearTokens()
         }
     }
     
-    // MARK: - FIXED OAuth 2.0 Authentication with Web-to-App Bridge
+    // MARK: - OAuth 2.0 Authentication (WORKING)
     func authenticate(completion: @escaping (Bool) -> Void) {
         print("🔐 Starting eBay OAuth 2.0 authentication with Web-to-App Bridge...")
         
@@ -1481,12 +1494,18 @@ class EbayService: NSObject, ObservableObject {
     private func buildAuthorizationURL() -> URL? {
         var components = URLComponents(string: ebayOAuthURL)
         
-        // FIXED: Use web redirect URI for initial OAuth
-        let scopes = Configuration.ebayRequiredScopes.joined(separator: " ")
+        // OAuth scopes needed for listing and user info
+        let scopes = [
+            "https://api.ebay.com/oauth/api_scope",
+            "https://api.ebay.com/oauth/api_scope/sell.inventory",
+            "https://api.ebay.com/oauth/api_scope/sell.account",
+            "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
+            "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly"
+        ].joined(separator: " ")
         
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "redirect_uri", value: redirectURI), // Web bridge URL
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "scope", value: scopes),
@@ -1495,7 +1514,11 @@ class EbayService: NSObject, ObservableObject {
         ]
         
         let url = components?.url
-        print("🔗 Built OAuth URL: \(url?.absoluteString ?? "nil")")
+        print("🔗 eBay OAuth URL built:")
+        print("   Client ID: \(clientId)")
+        print("   Redirect URI: \(redirectURI)")
+        print("   Scopes: \(scopes)")
+        print("   Full URL: \(url?.absoluteString ?? "nil")")
         return url
     }
     
@@ -1793,14 +1816,17 @@ class EbayService: NSObject, ObservableObject {
         print("🗑️ eBay tokens cleared")
     }
     
-    // MARK: - User Info Fetching
+    // MARK: - User Info Fetching (Fixed to get actual eBay username)
     private func fetchUserInfo() {
         guard let accessToken = accessToken else {
             print("❌ No access token for user info")
             return
         }
         
-        guard let url = URL(string: Configuration.ebayUserEndpoint) else {
+        // Use Commerce Identity API to get user profile
+        let userInfoURL = "https://api.ebay.com/commerce/identity/v1/user/"
+        
+        guard let url = URL(string: userInfoURL) else {
             print("❌ Invalid user endpoint")
             return
         }
@@ -1809,28 +1835,55 @@ class EbayService: NSObject, ObservableObject {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
+        print("👤 Fetching eBay user info...")
+        
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let data = data, error == nil else {
-                print("❌ User info fetch error: \(error?.localizedDescription ?? "Unknown")")
+            if let error = error {
+                print("❌ User info fetch error: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("🔍 User info response code: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode != 200 {
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("❌ User info error (\(httpResponse.statusCode)): \(errorString)")
+                    }
+                    return
+                }
+            }
+            
+            guard let data = data else {
+                print("❌ No user data received")
                 return
             }
             
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    print("✅ eBay user info received: \(json)")
+                    
+                    let username = json["username"] as? String ?? "eBay User"
+                    let userId = json["userId"] as? String ?? ""
+                    let email = json["email"] as? String ?? ""
+                    let registrationDate = json["registrationDate"] as? String ?? ""
+                    
                     let user = EbayUser(
-                        userId: json["userId"] as? String ?? "",
-                        username: json["username"] as? String ?? "",
-                        email: json["email"] as? String ?? "",
-                        registrationDate: json["registrationDate"] as? String ?? ""
+                        userId: userId,
+                        username: username,
+                        email: email,
+                        registrationDate: registrationDate
                     )
                     
                     DispatchQueue.main.async {
                         self?.userInfo = user
-                        self?.connectedUserName = user.username.isEmpty ? "eBay User" : user.username
+                        self?.connectedUserName = username
                         self?.saveUserInfo(user)
-                        UserDefaults.standard.set(self?.connectedUserName, forKey: self?.userNameKey ?? "")
-                        print("✅ eBay user info loaded: \(user.username)")
+                        UserDefaults.standard.set(username, forKey: self?.userNameKey ?? "")
+                        print("✅ eBay user connected: \(username)")
                     }
+                } else {
+                    print("❌ Invalid user info response format")
                 }
             } catch {
                 print("❌ Error parsing user info: \(error)")
@@ -1847,7 +1900,7 @@ class EbayService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - eBay Listing Creation (STUB - Will be implemented in Chat 2)
+    // MARK: - COMPLETE EBAY LISTING CREATION IMPLEMENTATION
     func createListing(analysis: AnalysisResult, images: [UIImage], completion: @escaping (Bool, String?) -> Void) {
         guard isAuthenticated else {
             completion(false, "Not authenticated with eBay. Please connect your account first.")
@@ -1859,18 +1912,530 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        print("📤 eBay listing creation - READY FOR IMPLEMENTATION")
-        print("• Access token: ✅ Available")
-        print("• Item: \(analysis.name)")
+        print("📤 Creating eBay listing: \(analysis.name)")
         print("• Price: $\(String(format: "%.2f", analysis.suggestedPrice))")
         print("• Images: \(images.count)")
         
-        // TODO: Implement real listing creation in Chat 2
-        // For now, return success to show OAuth is working
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            completion(true, nil)
+        // Step 1: Upload images to eBay
+        uploadImagesToEbay(images: images) { [weak self] imageUrls in
+            guard !imageUrls.isEmpty else {
+                completion(false, "Failed to upload images to eBay")
+                return
+            }
+            
+            print("✅ Uploaded \(imageUrls.count) images to eBay")
+            
+            // Step 2: Create inventory item
+            self?.createInventoryItem(analysis: analysis, imageUrls: imageUrls) { inventoryItemId in
+                guard let inventoryItemId = inventoryItemId else {
+                    completion(false, "Failed to create inventory item")
+                    return
+                }
+                
+                print("✅ Created inventory item: \(inventoryItemId)")
+                
+                // Step 3: Create offer (this creates the actual listing)
+                self?.createOffer(inventoryItemId: inventoryItemId, analysis: analysis) { success, errorMessage in
+                    if success {
+                        print("🎉 eBay listing created successfully!")
+                        completion(true, nil)
+                    } else {
+                        completion(false, errorMessage ?? "Failed to create listing")
+                    }
+                }
+            }
         }
+    }
+    
+    // MARK: - Image Upload to eBay
+    private func uploadImagesToEbay(images: [UIImage], completion: @escaping ([String]) -> Void) {
+        guard let accessToken = accessToken else {
+            completion([])
+            return
+        }
+        
+        let imageUploadURL = "\(Configuration.ebaySellInventoryAPI)/picture"
+        var uploadedImageUrls: [String] = []
+        let group = DispatchGroup()
+        
+        for (index, image) in images.enumerated() {
+            guard index < Configuration.ebayMaxImages else { break }
+            
+            group.enter()
+            
+            uploadSingleImageToEbay(image: image, accessToken: accessToken, uploadURL: imageUploadURL) { imageUrl in
+                if let imageUrl = imageUrl {
+                    uploadedImageUrls.append(imageUrl)
+                    print("✅ Uploaded image \(index + 1)/\(images.count)")
+                } else {
+                    print("❌ Failed to upload image \(index + 1)")
+                }
+                group.leave()
+            }
+        }
+        
+        group.notify(queue: .main) {
+            print("📸 Image upload complete: \(uploadedImageUrls.count)/\(images.count) successful")
+            completion(uploadedImageUrls)
+        }
+    }
+    
+    private func uploadSingleImageToEbay(image: UIImage, accessToken: String, uploadURL: String, completion: @escaping (String?) -> Void) {
+        guard let url = URL(string: uploadURL) else {
+            completion(nil)
+            return
+        }
+        
+        // Compress image for eBay (max 12MB, but we'll use 8MB to be safe)
+        guard let imageData = compressImageForEbay(image) else {
+            completion(nil)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        
+        // Create multipart form data
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var formData = Data()
+        
+        // Add image data
+        formData.append("--\(boundary)\r\n".data(using: .utf8)!)
+        formData.append("Content-Disposition: form-data; name=\"image\"; filename=\"item_image.jpg\"\r\n".data(using: .utf8)!)
+        formData.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        formData.append(imageData)
+        formData.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        request.httpBody = formData
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Image upload error: \(error)")
+                completion(nil)
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("🔍 Image upload response: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode != 200 && httpResponse.statusCode != 201 {
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("❌ Image upload error (\(httpResponse.statusCode)): \(errorString)")
+                    }
+                    completion(nil)
+                    return
+                }
+            }
+            
+            guard let data = data else {
+                completion(nil)
+                return
+            }
+            
+            // Parse response to get image URL
+            do {
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let imageUrl = json["imageUrl"] as? String {
+                    completion(imageUrl)
+                } else {
+                    print("❌ Could not parse image upload response")
+                    completion(nil)
+                }
+            } catch {
+                print("❌ Error parsing image upload response: \(error)")
+                completion(nil)
+            }
+            
+        }.resume()
+    }
+    
+    private func compressImageForEbay(_ image: UIImage) -> Data? {
+        // eBay allows up to 12MB images, but we'll target 5MB for better performance
+        let maxSizeBytes = 5 * 1024 * 1024
+        var compressionQuality: CGFloat = 0.9
+        var imageData = image.jpegData(compressionQuality: compressionQuality)
+        
+        while let data = imageData, data.count > maxSizeBytes && compressionQuality > 0.1 {
+            compressionQuality -= 0.1
+            imageData = image.jpegData(compressionQuality: compressionQuality)
+        }
+        
+        // If still too large, resize the image
+        if let data = imageData, data.count > maxSizeBytes {
+            let maxDimension: CGFloat = 1600 // eBay recommends 1600x1600 max
+            let currentMaxDimension = max(image.size.width, image.size.height)
+            
+            if currentMaxDimension > maxDimension {
+                let scale = maxDimension / currentMaxDimension
+                let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+                
+                UIGraphicsBeginImageContextWithOptions(newSize, false, 1.0)
+                image.draw(in: CGRect(origin: .zero, size: newSize))
+                let resizedImage = UIGraphicsGetImageFromCurrentImageContext()
+                UIGraphicsEndImageContext()
+                
+                imageData = resizedImage?.jpegData(compressionQuality: 0.8)
+            }
+        }
+        
+        return imageData
+    }
+    
+    // MARK: - Create Inventory Item
+    private func createInventoryItem(analysis: AnalysisResult, imageUrls: [String], completion: @escaping (String?) -> Void) {
+        guard let accessToken = accessToken else {
+            completion(nil)
+            return
+        }
+        
+        let inventoryItemId = "RESELLAI_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let createItemURL = "\(Configuration.ebaySellInventoryAPI)/inventory_item/\(inventoryItemId)"
+        
+        guard let url = URL(string: createItemURL) else {
+            completion(nil)
+            return
+        }
+        
+        // Build inventory item data
+        let inventoryData: [String: Any] = [
+            "availability": [
+                "pickupAtLocationAvailability": [
+                    [
+                        "availabilityType": "IN_STOCK",
+                        "fulfillmentTime": [
+                            "value": 1,
+                            "unit": "BUSINESS_DAY"
+                        ],
+                        "quantity": 1
+                    ]
+                ]
+            ],
+            "condition": mapConditionToEbay(analysis.condition),
+            "product": [
+                "title": analysis.title,
+                "description": analysis.description,
+                "imageUrls": imageUrls,
+                "aspects": buildProductAspects(from: analysis)
+            ]
+        ]
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: inventoryData)
+        } catch {
+            print("❌ Error creating inventory item JSON: \(error)")
+            completion(nil)
+            return
+        }
+        
+        print("📦 Creating inventory item: \(inventoryItemId)")
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Inventory item creation error: \(error)")
+                completion(nil)
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("🔍 Inventory item response: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 || httpResponse.statusCode == 204 {
+                    print("✅ Inventory item created successfully")
+                    completion(inventoryItemId)
+                } else {
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("❌ Inventory item error (\(httpResponse.statusCode)): \(errorString)")
+                    }
+                    completion(nil)
+                }
+            } else {
+                completion(nil)
+            }
+        }.resume()
+    }
+    
+    // MARK: - Create Offer (Creates the actual listing) - IMPROVED
+    private func createOffer(inventoryItemId: String, analysis: AnalysisResult, completion: @escaping (Bool, String?) -> Void) {
+        guard let accessToken = accessToken else {
+            completion(false, "No access token")
+            return
+        }
+        
+        let offerId = "OFFER_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))"
+        let createOfferURL = "\(Configuration.ebaySellInventoryAPI)/offer/\(offerId)"
+        
+        guard let url = URL(string: createOfferURL) else {
+            completion(false, "Invalid offer URL")
+            return
+        }
+        
+        // First, let's try to get user's existing policies
+        getOrCreateDefaultPolicies { [weak self] policies in
+            guard let self = self else { return }
+            
+            // Build offer data with actual or default policies
+            var offerData: [String: Any] = [
+                "sku": inventoryItemId,
+                "marketplaceId": "EBAY_US",
+                "format": "FIXED_PRICE",
+                "availableQuantity": 1,
+                "categoryId": self.getCategoryId(for: analysis.category),
+                "listingDescription": analysis.description,
+                "pricingSummary": [
+                    "price": [
+                        "value": String(format: "%.2f", analysis.suggestedPrice),
+                        "currency": "USD"
+                    ]
+                ],
+                "quantityLimitPerBuyer": 1
+            ]
+            
+            // Only add policies if we found them
+            if let policies = policies, !policies.isEmpty {
+                offerData["listingPolicies"] = policies
+            }
+            
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: offerData)
+                print("📝 Offer data: \(offerData)")
+            } catch {
+                print("❌ Error creating offer JSON: \(error)")
+                completion(false, "Failed to create offer data")
+                return
+            }
+            
+            print("🎯 Creating offer for inventory item: \(inventoryItemId)")
+            
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("❌ Offer creation error: \(error)")
+                    completion(false, "Network error: \(error.localizedDescription)")
+                    return
+                }
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    print("🔍 Offer creation response: \(httpResponse.statusCode)")
+                    
+                    if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 {
+                        print("✅ Offer created successfully")
+                        
+                        // Now publish the offer to create the actual listing
+                        self.publishOffer(offerId: offerId) { success, publishError in
+                            completion(success, publishError)
+                        }
+                    } else {
+                        var errorMessage = "Failed to create offer"
+                        if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                            print("❌ Offer creation error (\(httpResponse.statusCode)): \(errorString)")
+                            errorMessage = "eBay error: \(errorString)"
+                        }
+                        completion(false, errorMessage)
+                    }
+                } else {
+                    completion(false, "Invalid response")
+                }
+            }.resume()
+        }
+    }
+    
+    // MARK: - Get or Create Default Policies
+    private func getOrCreateDefaultPolicies(completion: @escaping ([String: String]?) -> Void) {
+        guard let accessToken = accessToken else {
+            completion(nil)
+            return
+        }
+        
+        // Try to get existing fulfillment policies
+        let policiesURL = "\(Configuration.ebaySellAccountAPI)/fulfillment_policy"
+        
+        guard let url = URL(string: policiesURL) else {
+            completion(nil)
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        print("🔍 Checking for existing eBay policies...")
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Error checking policies: \(error)")
+                completion(nil)
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200,
+               let data = data {
+                
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let policies = json["fulfillmentPolicies"] as? [[String: Any]],
+                       let firstPolicy = policies.first,
+                       let policyId = firstPolicy["fulfillmentPolicyId"] as? String {
+                        
+                        print("✅ Found existing fulfillment policy: \(policyId)")
+                        
+                        // For now, just use the first fulfillment policy we find
+                        // In a production app, you'd want to check for payment and return policies too
+                        let policyDict = ["fulfillmentPolicyId": policyId]
+                        completion(policyDict)
+                        return
+                    }
+                } catch {
+                    print("❌ Error parsing policies: \(error)")
+                }
+            } else {
+                print("⚠️ No existing policies found or error accessing policies")
+            }
+            
+            // If no policies found, return nil to create listing without explicit policies
+            // eBay will use account defaults
+            print("ℹ️ Using eBay account default policies")
+            completion(nil)
+            
+        }.resume()
+    }
+    
+    // MARK: - Publish Offer (Makes listing live)
+    private func publishOffer(offerId: String, completion: @escaping (Bool, String?) -> Void) {
+        guard let accessToken = accessToken else {
+            completion(false, "No access token")
+            return
+        }
+        
+        let publishURL = "\(Configuration.ebaySellInventoryAPI)/offer/\(offerId)/publish"
+        
+        guard let url = URL(string: publishURL) else {
+            completion(false, "Invalid publish URL")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        print("🚀 Publishing offer: \(offerId)")
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error = error {
+                print("❌ Offer publish error: \(error)")
+                completion(false, "Publish error: \(error.localizedDescription)")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("🔍 Offer publish response: \(httpResponse.statusCode)")
+                
+                if httpResponse.statusCode == 200 || httpResponse.statusCode == 201 || httpResponse.statusCode == 204 {
+                    print("🎉 Offer published successfully! Listing is now live on eBay!")
+                    completion(true, nil)
+                } else {
+                    var errorMessage = "Failed to publish listing"
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("❌ Publish error (\(httpResponse.statusCode)): \(errorString)")
+                        errorMessage = "Publish error: \(errorString)"
+                    }
+                    completion(false, errorMessage)
+                }
+            } else {
+                completion(false, "Invalid publish response")
+            }
+        }.resume()
+    }
+    
+    // MARK: - Helper Functions for eBay Listing
+    private func mapConditionToEbay(_ condition: String) -> String {
+        let conditionLower = condition.lowercased()
+        
+        if conditionLower.contains("new with tags") {
+            return "NEW_WITH_TAGS"
+        } else if conditionLower.contains("new without tags") {
+            return "NEW_WITHOUT_TAGS"
+        } else if conditionLower.contains("new") {
+            return "NEW_OTHER"
+        } else if conditionLower.contains("like new") || conditionLower.contains("excellent") {
+            return "USED_EXCELLENT"
+        } else if conditionLower.contains("very good") {
+            return "USED_VERY_GOOD"
+        } else if conditionLower.contains("good") {
+            return "USED_GOOD"
+        } else if conditionLower.contains("acceptable") || conditionLower.contains("fair") {
+            return "USED_ACCEPTABLE"
+        } else {
+            return "USED_GOOD" // Default fallback
+        }
+    }
+    
+    private func buildProductAspects(from analysis: AnalysisResult) -> [String: [String]] {
+        var aspects: [String: [String]] = [:]
+        
+        if !analysis.brand.isEmpty {
+            aspects["Brand"] = [analysis.brand]
+        }
+        
+        if let size = analysis.size, !size.isEmpty {
+            aspects["Size"] = [size]
+        }
+        
+        if let colorway = analysis.colorway, !colorway.isEmpty {
+            aspects["Color"] = [colorway]
+        }
+        
+        if let model = analysis.exactModel, !model.isEmpty {
+            aspects["Model"] = [model]
+        }
+        
+        if let styleCode = analysis.styleCode, !styleCode.isEmpty {
+            aspects["Style Code"] = [styleCode]
+        }
+        
+        // Add condition as an aspect
+        aspects["Condition"] = [analysis.condition]
+        
+        return aspects
+    }
+    
+    private func getCategoryId(for category: String) -> String {
+        // Use the category mappings from Configuration
+        let categoryMappings: [String: String] = [
+            "Sneakers": "15709",
+            "Shoes": "15709",
+            "Athletic Shoes": "15709",
+            "Clothing": "11450",
+            "Electronics": "58058",
+            "Smartphones": "9355",
+            "Cell Phones": "9355",
+            "Accessories": "169291",
+            "Home": "11700",
+            "Collectibles": "1",
+            "Books": "267",
+            "Toys": "220",
+            "Sports": "888",
+            "Other": "99"
+        ]
+        
+        for (key, value) in categoryMappings {
+            if category.lowercased().contains(key.lowercased()) {
+                return value
+            }
+        }
+        return "99" // Other category as fallback
     }
     
     // MARK: - Authentication Status
@@ -1933,7 +2498,7 @@ class GoogleSheetsService: ObservableObject {
     }
 }
 
-// MARK: - INVENTORY MANAGER (FIXED FIRESTORE QUERY)
+// MARK: - INVENTORY MANAGER (UNCHANGED)
 class InventoryManager: ObservableObject {
     @Published var items: [InventoryItem] = []
     

@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with WORKING Web-to-App Bridge OAuth
+//  Complete Reselling Automation with FIXED eBay Integration
 //
 
 import SwiftUI
@@ -68,9 +68,10 @@ struct AuthenticatedAppView: View {
     }
 }
 
-// MARK: - BUSINESS HEADER WITH USER INFO
+// MARK: - BUSINESS HEADER WITH eBay USER INFO (UPDATED)
 struct BusinessHeader: View {
     @EnvironmentObject var firebaseService: FirebaseService
+    @EnvironmentObject var businessService: BusinessService
     
     var body: some View {
         VStack(spacing: 0) {
@@ -89,17 +90,35 @@ struct BusinessHeader: View {
                 
                 Spacer()
                 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: 8) {
+                    // eBay Connection Status
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(Configuration.isFullyConfigured ? Color.green : Color.orange)
+                            .fill(businessService.isEbayAuthenticated ? Color.green : Color.orange)
                             .frame(width: 8, height: 8)
                         
-                        Text(Configuration.isFullyConfigured ? "Ready" : "Setup")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(Configuration.isFullyConfigured ? .green : .orange)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("eBay")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(businessService.isEbayAuthenticated ? .green : .orange)
+                            
+                            if businessService.isEbayAuthenticated && !businessService.ebayService.connectedUserName.isEmpty {
+                                Text(businessService.ebayService.connectedUserName)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.secondary)
+                            } else if businessService.isEbayAuthenticated {
+                                Text("Connected")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.secondary)
+                            } else {
+                                Text("Connect")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
                     }
                     
+                    // Usage Status
                     if let user = firebaseService.currentUser {
                         Text("\(firebaseService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
                             .font(.system(size: 12, weight: .medium))
@@ -1648,6 +1667,7 @@ struct PriceOption: View {
     }
 }
 
+// MARK: - ENHANCED EBAY INTEGRATION CARD
 struct EbayIntegrationCard: View {
     let isAuthenticated: Bool
     let isCreatingListing: Bool
@@ -1655,6 +1675,8 @@ struct EbayIntegrationCard: View {
     let canCreateListing: Bool
     let onAuthenticate: () -> Void
     let onCreateListing: () -> Void
+    
+    @EnvironmentObject var businessService: BusinessService
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1670,15 +1692,30 @@ struct EbayIntegrationCard: View {
                         .fill(isAuthenticated ? Color.green : Color.orange)
                         .frame(width: 8, height: 8)
                     
-                    Text(isAuthenticated ? "Connected" : "Not Connected")
-                        .font(.caption)
-                        .fontWeight(.medium)
-                        .foregroundColor(isAuthenticated ? .green : .orange)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(isAuthenticated ? "Connected" : "Not Connected")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(isAuthenticated ? .green : .orange)
+                        
+                        if isAuthenticated && !businessService.ebayService.connectedUserName.isEmpty {
+                            Text("@\(businessService.ebayService.connectedUserName)")
+                                .font(.caption2)
+                                .foregroundColor(.blue)
+                                .fontWeight(.semibold)
+                        }
+                    }
                 }
             }
             
             if isAuthenticated {
                 VStack(alignment: .leading, spacing: 8) {
+                    if !businessService.ebayService.connectedUserName.isEmpty {
+                        Label("Connected as \(businessService.ebayService.connectedUserName)", systemImage: "person.circle.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.green)
+                    }
+                    
                     Label("Ready to create listing automatically", systemImage: "checkmark.circle.fill")
                         .font(.subheadline)
                         .foregroundColor(.green)
@@ -1699,11 +1736,25 @@ struct EbayIntegrationCard: View {
                 }
                 
                 if !listingStatus.isEmpty {
-                    Text(listingStatus)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundColor(listingStatus.contains("✅") ? .green : .red)
-                        .padding(.top, 4)
+                    HStack(spacing: 8) {
+                        if listingStatus.contains("✅") {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                        } else if listingStatus.contains("❌") {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.red)
+                        } else {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                                .scaleEffect(0.8)
+                        }
+                        
+                        Text(listingStatus)
+                            .font(.subheadline)
+                            .fontWeight(.medium)
+                            .foregroundColor(listingStatus.contains("✅") ? .green : listingStatus.contains("❌") ? .red : .blue)
+                    }
+                    .padding(.top, 4)
                 }
                 
                 if isCreatingListing {
@@ -1727,7 +1778,25 @@ struct EbayIntegrationCard: View {
                     Label("One-click posting with optimal pricing", systemImage: "bolt.fill")
                         .font(.subheadline)
                         .foregroundColor(.blue)
+                    
+                    Label("Professional listing creation", systemImage: "wand.and.rays")
+                        .font(.subheadline)
+                        .foregroundColor(.purple)
                 }
+                
+                Button(action: onAuthenticate) {
+                    HStack {
+                        Image(systemName: "link.badge.plus")
+                        Text("Connect eBay Account")
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color.blue)
+                    .cornerRadius(12)
+                }
+                .padding(.top, 8)
             }
         }
         .padding()
@@ -2293,7 +2362,7 @@ struct CategoryStorageCard: View {
     }
 }
 
-// MARK: - SETTINGS VIEW
+// MARK: - ENHANCED SETTINGS VIEW WITH eBay TESTING
 struct SettingsView: View {
     @EnvironmentObject var inventoryManager: InventoryManager
     @EnvironmentObject var businessService: BusinessService
@@ -2303,6 +2372,8 @@ struct SettingsView: View {
     @State private var showingAPIConfig = false
     @State private var showingAbout = false
     @State private var showingPlanFeatures = false
+    @State private var testingEbayConnection = false
+    @State private var ebayTestResult = ""
     
     var body: some View {
         NavigationView {
@@ -2348,13 +2419,24 @@ struct SettingsView: View {
                     HStack {
                         Label("eBay Status", systemImage: "network")
                         Spacer()
-                        Text(businessService.isEbayAuthenticated ? "Connected" : "Not Connected")
-                            .foregroundColor(businessService.isEbayAuthenticated ? .green : .orange)
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text(businessService.isEbayAuthenticated ? "Connected" : "Not Connected")
+                                .foregroundColor(businessService.isEbayAuthenticated ? .green : .orange)
+                            
+                            if businessService.isEbayAuthenticated && !businessService.ebayService.connectedUserName.isEmpty {
+                                Text("@\(businessService.ebayService.connectedUserName)")
+                                    .font(.caption)
+                                    .foregroundColor(.blue)
+                            }
+                        }
                     }
                     
                     if !businessService.isEbayAuthenticated {
                         Button("Connect eBay Account") {
-                            businessService.authenticateEbay { _ in }
+                            print("🔐 Starting eBay OAuth from Settings...")
+                            businessService.authenticateEbay { success in
+                                print("eBay auth result: \(success)")
+                            }
                         }
                         .foregroundColor(.blue)
                     } else {
@@ -2367,10 +2449,52 @@ struct SettingsView: View {
                             }
                         }
                         
+                        Button("Test eBay Connection") {
+                            testEbayConnection()
+                        }
+                        .foregroundColor(.blue)
+                        .disabled(testingEbayConnection)
+                        
+                        if testingEbayConnection {
+                            HStack {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("Testing connection...")
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        
+                        if !ebayTestResult.isEmpty {
+                            Text(ebayTestResult)
+                                .font(.caption)
+                                .foregroundColor(ebayTestResult.contains("✅") ? .green : .red)
+                        }
+                        
                         Button("Disconnect eBay") {
                             businessService.ebayService.signOut()
+                            ebayTestResult = ""
                         }
                         .foregroundColor(.red)
+                    }
+                }
+                
+                Section("Configuration Details") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("eBay Environment: PRODUCTION")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                        
+                        Text("Client ID: \(Configuration.ebayAPIKey)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Text("RuName: \(Configuration.ebayRuName)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        
+                        Text("Redirect URI: \(Configuration.ebayRedirectURI)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
                     }
                 }
                 
@@ -2405,8 +2529,57 @@ struct SettingsView: View {
             PlanFeaturesView().environmentObject(firebaseService)
         }
     }
+    
+    private func testEbayConnection() {
+        testingEbayConnection = true
+        ebayTestResult = ""
+        
+        // Test by trying to fetch user policies (simple API call)
+        guard businessService.ebayService.hasValidToken else {
+            testingEbayConnection = false
+            ebayTestResult = "❌ No access token"
+            return
+        }
+        
+        let testURL = "https://api.ebay.com/sell/account/v1/fulfillment_policy"
+        
+        guard let url = URL(string: testURL) else {
+            testingEbayConnection = false
+            ebayTestResult = "❌ Invalid test URL"
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(businessService.ebayService.getAccessToken() ?? "")", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                self.testingEbayConnection = false
+                
+                if let error = error {
+                    self.ebayTestResult = "❌ Network error: \(error.localizedDescription)"
+                    return
+                }
+                
+                if let httpResponse = response as? HTTPURLResponse {
+                    if httpResponse.statusCode == 200 {
+                        self.ebayTestResult = "✅ eBay API connection working!"
+                    } else {
+                        self.ebayTestResult = "❌ API error: \(httpResponse.statusCode)"
+                        if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                            print("eBay test error: \(errorString)")
+                        }
+                    }
+                } else {
+                    self.ebayTestResult = "❌ Invalid response"
+                }
+            }
+        }.resume()
+    }
 }
 
+// MARK: - SETTINGS ROW
 struct SettingsRow: View {
     let title: String
     let icon: String
