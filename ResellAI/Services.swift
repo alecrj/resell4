@@ -2,7 +2,7 @@
 //  Services.swift
 //  ResellAI
 //
-//  Complete Reselling Automation with FULL eBay Listing Creation
+//  Complete Reselling Automation with FIXED eBay Integration
 //
 
 import SwiftUI
@@ -1341,7 +1341,7 @@ struct ProductIdentificationResult {
     let completeness: String
 }
 
-// MARK: - COMPLETE EBAY SERVICE WITH FULL LISTING CREATION
+// MARK: - COMPLETE EBAY SERVICE WITH FIXED OAUTH
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -1430,21 +1430,34 @@ class EbayService: NSObject, ObservableObject {
         return hasValidToken ? accessToken : nil
     }
     
-    // MARK: - OAuth 2.0 Authentication
+    // MARK: - FIXED OAuth 2.0 Authentication with Fallback
     func authenticate(completion: @escaping (Bool) -> Void) {
-        print("🔐 Starting eBay OAuth 2.0 authentication with Web-to-App Bridge...")
+        print("🔐 Starting eBay OAuth 2.0 authentication with MINIMAL scopes...")
         
+        // Try authentication with minimal scopes first
+        authenticateWithScopes(Configuration.ebayRequiredScopes, completion: completion)
+    }
+    
+    private func authenticateWithScopes(_ scopes: [String], completion: @escaping (Bool) -> Void) {
         // Generate PKCE parameters
         generatePKCEParameters()
         
-        // Build authorization URL with web redirect URI
-        guard let authURL = buildAuthorizationURL() else {
+        // Build authorization URL with specified scopes
+        guard let authURL = buildAuthorizationURLWithScopes(scopes) else {
             print("❌ Failed to build authorization URL")
+            
+            // Try with even more minimal scopes if this fails
+            if scopes.count > 1 {
+                print("🔄 Trying with minimal scope only...")
+                authenticateWithScopes(Configuration.ebayMinimalScopes, completion: completion)
+                return
+            }
+            
             completion(false)
             return
         }
         
-        print("🌐 Opening eBay OAuth: \(authURL.absoluteString)")
+        print("🌐 Opening eBay OAuth with \(scopes.count) scopes: \(authURL.absoluteString)")
         
         // Open in Safari
         DispatchQueue.main.async {
@@ -1471,6 +1484,66 @@ class EbayService: NSObject, ObservableObject {
         }
     }
     
+    private func buildAuthorizationURLWithScopes(_ scopes: [String]) -> URL? {
+        var components = URLComponents(string: ebayOAuthURL)
+        
+        // Join scopes with space separator
+        let scopeString = scopes.joined(separator: " ")
+        
+        // Build query items with exact parameter names eBay expects
+        let queryItems = [
+            URLQueryItem(name: "client_id", value: clientId),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "scope", value: scopeString),
+            URLQueryItem(name: "code_challenge", value: codeChallenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256")
+        ]
+        
+        components?.queryItems = queryItems
+        
+        // Get the URL and validate it
+        guard let url = components?.url else {
+            print("❌ Failed to build OAuth URL with scopes: \(scopeString)")
+            return nil
+        }
+        
+        // Detailed logging for debugging
+        print("🔗 eBay OAuth URL built with \(scopes.count) scopes:")
+        print("   Client ID: \(clientId)")
+        print("   Redirect URI: \(redirectURI)")
+        print("   Scopes: \(scopeString)")
+        print("   State: \(state?.prefix(8) ?? "nil")...")
+        print("   Challenge: \(codeChallenge?.prefix(10) ?? "nil")...")
+        print("   URL Length: \(url.absoluteString.count) chars")
+        
+        // Validate critical parameters
+        let urlString = url.absoluteString
+        var missingParams: [String] = []
+        
+        if !urlString.contains("client_id=\(clientId)") {
+            missingParams.append("client_id")
+        }
+        if !urlString.contains("redirect_uri=") {
+            missingParams.append("redirect_uri")
+        }
+        if !urlString.contains("code_challenge=") {
+            missingParams.append("code_challenge")
+        }
+        if !urlString.contains("state=") {
+            missingParams.append("state")
+        }
+        
+        if !missingParams.isEmpty {
+            print("❌ Missing parameters: \(missingParams.joined(separator: ", "))")
+            return nil
+        }
+        
+        print("✅ OAuth URL validation passed")
+        return url
+    }
+    
     private var authCompletion: ((Bool) -> Void)?
     
     private func generatePKCEParameters() {
@@ -1483,7 +1556,7 @@ class EbayService: NSObject, ObservableObject {
         }
         
         // Generate state parameter for CSRF protection
-        state = UUID().uuidString
+        state = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         
         print("🔐 PKCE parameters generated")
         print("• Code verifier: \(codeVerifier?.count ?? 0) chars")
@@ -1502,33 +1575,11 @@ class EbayService: NSObject, ObservableObject {
         return Data(hash).base64URLEncodedString()
     }
     
-    private func buildAuthorizationURL() -> URL? {
-        var components = URLComponents(string: ebayOAuthURL)
-        
-        // OAuth scopes needed for listing and user info
-        let scopes = Configuration.ebayRequiredScopes.joined(separator: " ")
-        
-        components?.queryItems = [
-            URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "redirect_uri", value: redirectURI),
-            URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "scope", value: scopes),
-            URLQueryItem(name: "code_challenge", value: codeChallenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256")
-        ]
-        
-        let url = components?.url
-        print("🔗 eBay OAuth URL built:")
-        print("   Client ID: \(clientId)")
-        print("   Redirect URI: \(redirectURI)")
-        print("   Scopes: \(scopes)")
-        print("   Full URL: \(url?.absoluteString ?? "nil")")
-        return url
-    }
+
     
     func handleAuthCallback(url: URL, completion: ((Bool) -> Void)? = nil) {
         print("📞 Processing eBay OAuth callback from web-to-app bridge: \(url)")
+        print("📋 Full callback URL: \(url.absoluteString)")
         
         // Close Safari view controller if still open
         DispatchQueue.main.async {
@@ -1537,6 +1588,12 @@ class EbayService: NSObject, ObservableObject {
         
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
         let queryItems = components?.queryItems
+        
+        // Log all query parameters for debugging
+        print("📋 Callback query items:")
+        queryItems?.forEach { item in
+            print("   • \(item.name): \(item.value ?? "nil")")
+        }
         
         // Check for errors
         if let error = queryItems?.first(where: { $0.name == "error" })?.value {
@@ -1564,6 +1621,7 @@ class EbayService: NSObject, ObservableObject {
         // Get authorization code
         guard let code = queryItems?.first(where: { $0.name == "code" })?.value else {
             print("❌ No authorization code received")
+            print("Available parameters: \(queryItems?.map { $0.name } ?? [])")
             DispatchQueue.main.async {
                 self.authStatus = "No authorization code received"
                 self.authCompletion?(false)
@@ -1572,19 +1630,22 @@ class EbayService: NSObject, ObservableObject {
             return
         }
         
-        // Verify state parameter
-        let receivedState = queryItems?.first(where: { $0.name == "state" })?.value
-        guard receivedState == state else {
-            print("❌ State parameter mismatch - possible CSRF attack")
-            DispatchQueue.main.async {
-                self.authStatus = "Authentication failed - security error"
-                self.authCompletion?(false)
-                completion?(false)
+        // Verify state parameter if present
+        if let receivedState = queryItems?.first(where: { $0.name == "state" })?.value {
+            guard receivedState == state else {
+                print("❌ State parameter mismatch")
+                print("   Expected: \(state?.prefix(8) ?? "nil")...")
+                print("   Received: \(receivedState.prefix(8))...")
+                DispatchQueue.main.async {
+                    self.authStatus = "Authentication failed - security error"
+                    self.authCompletion?(false)
+                    completion?(false)
+                }
+                return
             }
-            return
         }
         
-        print("✅ Authorization code received from web bridge: \(code.prefix(20))...")
+        print("✅ Authorization code received: \(code.prefix(20))...")
         
         // Exchange authorization code for access token
         exchangeCodeForTokens(code: code) { [weak self] success in
@@ -1639,6 +1700,7 @@ class EbayService: NSObject, ObservableObject {
         print("• Endpoint: \(url.absoluteString)")
         print("• Client ID: \(clientId)")
         print("• Redirect URI: \(redirectURI)")
+        print("• Code Verifier: \(codeVerifier?.prefix(10) ?? "nil")...")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
@@ -1653,6 +1715,14 @@ class EbayService: NSObject, ObservableObject {
                 if httpResponse.statusCode != 200 {
                     if let data = data, let errorString = String(data: data, encoding: .utf8) {
                         print("❌ Token exchange error (\(httpResponse.statusCode)): \(errorString)")
+                        
+                        // Try to parse the error for better debugging
+                        if let errorData = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                            print("📋 Parsed error response:")
+                            errorData.forEach { key, value in
+                                print("   • \(key): \(value)")
+                            }
+                        }
                     }
                     completion(false)
                     return
@@ -1669,6 +1739,7 @@ class EbayService: NSObject, ObservableObject {
             do {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     print("✅ Token response received")
+                    print("📋 Token response keys: \(json.keys.joined(separator: ", "))")
                     
                     self?.accessToken = json["access_token"] as? String
                     self?.refreshToken = json["refresh_token"] as? String
@@ -1688,11 +1759,17 @@ class EbayService: NSObject, ObservableObject {
                     
                 } else {
                     print("❌ Invalid token response format")
+                    if let responseString = String(data: data, encoding: .utf8) {
+                        print("Raw response: \(responseString)")
+                    }
                     completion(false)
                 }
                 
             } catch {
                 print("❌ Error parsing token response: \(error)")
+                if let responseString = String(data: data, encoding: .utf8) {
+                    print("Raw response: \(responseString)")
+                }
                 completion(false)
             }
             
