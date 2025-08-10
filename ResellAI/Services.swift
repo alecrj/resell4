@@ -13,7 +13,7 @@ import FirebaseFirestore
 import CryptoKit
 import SafariServices
 
-// MARK: - MAIN BUSINESS SERVICE WITH QUEUE SYSTEM (UNCHANGED)
+// MARK: - MAIN BUSINESS SERVICE WITH QUEUE SYSTEM
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -52,7 +52,7 @@ class BusinessService: ObservableObject {
         ebayService.initialize()
     }
     
-    // MARK: - QUEUE MANAGEMENT METHODS (UNCHANGED - ALL WORKING)
+    // MARK: - QUEUE MANAGEMENT METHODS
     
     func addItemToQueue(photos: [UIImage]) -> UUID {
         let itemId = processingQueue.addItem(photos: photos)
@@ -158,7 +158,7 @@ class BusinessService: ObservableObject {
         print("🗑️ Queue cleared")
     }
     
-    // MARK: - PRIVATE QUEUE PROCESSING METHODS (UNCHANGED)
+    // MARK: - PRIVATE QUEUE PROCESSING METHODS
     
     private func canProcessQueue() -> Bool {
         guard let firebase = firebaseService else { return false }
@@ -375,7 +375,7 @@ class BusinessService: ObservableObject {
         print("📱 Would send notification: \(completedCount) items analyzed and ready for review")
     }
     
-    // MARK: - QUEUE PERSISTENCE (UNCHANGED)
+    // MARK: - QUEUE PERSISTENCE
     
     private func saveQueue() {
         do {
@@ -406,7 +406,7 @@ class BusinessService: ObservableObject {
         }
     }
     
-    // MARK: - EXISTING ANALYSIS METHODS (UNCHANGED - WORKING WELL)
+    // MARK: - ANALYSIS METHODS
     
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
@@ -932,7 +932,7 @@ class BusinessService: ObservableObject {
         return queries
     }
     
-    // MARK: - EBAY LISTING CREATION (FULLY IMPLEMENTED)
+    // MARK: - EBAY LISTING CREATION
     func createEbayListing(from analysis: AnalysisResult, images: [UIImage], completion: @escaping (Bool, String?) -> Void) {
         guard let firebase = firebaseService else {
             completion(false, "Firebase not initialized")
@@ -981,7 +981,7 @@ class BusinessService: ObservableObject {
         analyzeItem(images, completion: completion)
     }
     
-    // MARK: - GOOGLE SHEETS INTEGRATION (UNCHANGED)
+    // MARK: - GOOGLE SHEETS INTEGRATION
     func authenticateGoogleSheets() {
         googleSheetsService.authenticate()
     }
@@ -1000,7 +1000,7 @@ extension Notification.Name {
     static let queueProcessingComplete = Notification.Name("queueProcessingComplete")
 }
 
-// MARK: - SUPPORTING MODELS (UNCHANGED)
+// MARK: - SUPPORTING MODELS
 struct MarketData {
     let activeListings: [EbayListing]
     let soldComps: [EbaySoldItem]
@@ -1029,7 +1029,7 @@ struct ProfessionalListing {
     let listingEnhancements: [String]
 }
 
-// MARK: - AI ANALYSIS SERVICE (UNCHANGED - WORKING PERFECTLY)
+// MARK: - AI ANALYSIS SERVICE
 class AIAnalysisService: ObservableObject {
     private let apiKey = Configuration.openAIKey
     private let endpoint = Configuration.openAIEndpoint
@@ -1362,15 +1362,15 @@ class EbayService: NSObject, ObservableObject {
     private var safariViewController: SFSafariViewController?
     
     // eBay OAuth Configuration - Using your actual credentials
-    private let clientId = "AlecRodr-resell-PRD-d0bc91504-be3e553a"
-    private let clientSecret = "PRD-0bc91504af12-57f0-49aa-8bb7-763a"
-    private let devId = "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
-    private let ruName = "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
-    private let redirectURI = "https://resellai-auth.vercel.app/ebay-callback" // Your web bridge
-    private let appScheme = "resellai://auth/ebay" // App callback
+    private let clientId = Configuration.ebayAPIKey
+    private let clientSecret = Configuration.ebayClientSecret
+    private let devId = Configuration.ebayDevId
+    private let ruName = Configuration.ebayRuName
+    private let redirectURI = Configuration.ebayRedirectURI
+    private let appScheme = Configuration.ebayAppScheme
     
     // Production eBay OAuth URL
-    private let ebayOAuthURL = "https://auth.ebay.com/oauth2/authorize"
+    private let ebayOAuthURL = Configuration.ebayAuthBase + "/oauth2/authorize"
     
     // Storage keys
     private let accessTokenKey = "EbayAccessToken"
@@ -1393,7 +1393,7 @@ class EbayService: NSObject, ObservableObject {
         print("• RuName: \(ruName)")
         print("• Web Redirect URI: \(redirectURI)")
         print("• App Callback URI: \(appScheme)")
-        print("• Environment: PRODUCTION")
+        print("• Environment: \(Configuration.ebayEnvironment)")
         print("========================")
         
         // Check if we have valid tokens on startup
@@ -1419,7 +1419,18 @@ class EbayService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - OAuth 2.0 Authentication (WORKING)
+    // MARK: - TOKEN ACCESS METHODS (FIXES THE ERROR)
+    var hasValidToken: Bool {
+        guard let token = accessToken, !token.isEmpty else { return false }
+        guard let expiry = tokenExpiryDate else { return false }
+        return expiry > Date()
+    }
+    
+    func getAccessToken() -> String? {
+        return hasValidToken ? accessToken : nil
+    }
+    
+    // MARK: - OAuth 2.0 Authentication
     func authenticate(completion: @escaping (Bool) -> Void) {
         print("🔐 Starting eBay OAuth 2.0 authentication with Web-to-App Bridge...")
         
@@ -1495,13 +1506,7 @@ class EbayService: NSObject, ObservableObject {
         var components = URLComponents(string: ebayOAuthURL)
         
         // OAuth scopes needed for listing and user info
-        let scopes = [
-            "https://api.ebay.com/oauth/api_scope",
-            "https://api.ebay.com/oauth/api_scope/sell.inventory",
-            "https://api.ebay.com/oauth/api_scope/sell.account",
-            "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
-            "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly"
-        ].joined(separator: " ")
+        let scopes = Configuration.ebayRequiredScopes.joined(separator: " ")
         
         components?.queryItems = [
             URLQueryItem(name: "client_id", value: clientId),
@@ -1816,7 +1821,7 @@ class EbayService: NSObject, ObservableObject {
         print("🗑️ eBay tokens cleared")
     }
     
-    // MARK: - User Info Fetching (Fixed to get actual eBay username)
+    // MARK: - User Info Fetching
     private func fetchUserInfo() {
         guard let accessToken = accessToken else {
             print("❌ No access token for user info")
@@ -1824,7 +1829,7 @@ class EbayService: NSObject, ObservableObject {
         }
         
         // Use Commerce Identity API to get user profile
-        let userInfoURL = "https://api.ebay.com/commerce/identity/v1/user/"
+        let userInfoURL = Configuration.ebayUserEndpoint
         
         guard let url = URL(string: userInfoURL) else {
             print("❌ Invalid user endpoint")
@@ -2162,7 +2167,7 @@ class EbayService: NSObject, ObservableObject {
         }.resume()
     }
     
-    // MARK: - Create Offer (Creates the actual listing) - IMPROVED
+    // MARK: - Create Offer (Creates the actual listing)
     private func createOffer(inventoryItemId: String, analysis: AnalysisResult, completion: @escaping (Bool, String?) -> Void) {
         guard let accessToken = accessToken else {
             completion(false, "No access token")
@@ -2413,24 +2418,7 @@ class EbayService: NSObject, ObservableObject {
     
     private func getCategoryId(for category: String) -> String {
         // Use the category mappings from Configuration
-        let categoryMappings: [String: String] = [
-            "Sneakers": "15709",
-            "Shoes": "15709",
-            "Athletic Shoes": "15709",
-            "Clothing": "11450",
-            "Electronics": "58058",
-            "Smartphones": "9355",
-            "Cell Phones": "9355",
-            "Accessories": "169291",
-            "Home": "11700",
-            "Collectibles": "1",
-            "Books": "267",
-            "Toys": "220",
-            "Sports": "888",
-            "Other": "99"
-        ]
-        
-        for (key, value) in categoryMappings {
+        for (key, value) in Configuration.ebayCategoryMappings {
             if category.lowercased().contains(key.lowercased()) {
                 return value
             }
@@ -2474,7 +2462,7 @@ extension Data {
     }
 }
 
-// MARK: - GOOGLE SHEETS SERVICE (UNCHANGED)
+// MARK: - GOOGLE SHEETS SERVICE
 class GoogleSheetsService: ObservableObject {
     @Published var isSyncing = false
     @Published var syncStatus = "Ready"
@@ -2498,7 +2486,7 @@ class GoogleSheetsService: ObservableObject {
     }
 }
 
-// MARK: - INVENTORY MANAGER (UNCHANGED)
+// MARK: - INVENTORY MANAGER
 class InventoryManager: ObservableObject {
     @Published var items: [InventoryItem] = []
     
