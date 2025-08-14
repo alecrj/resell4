@@ -2,15 +2,10 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Main App Coordinator - COMPLETE REPLACEMENT
+//  Main App Coordinator - Clean Version
 //
 
 import SwiftUI
-import UIKit
-import AVFoundation
-import PhotosUI
-import MessageUI
-import LocalAuthentication
 
 // MARK: - MAIN CONTENT VIEW
 struct ContentView: View {
