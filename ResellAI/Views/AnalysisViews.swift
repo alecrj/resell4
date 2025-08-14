@@ -2,203 +2,13 @@
 //  AnalysisViews.swift
 //  ResellAI
 //
-//  Camera and Analysis Flow Views
+//  Camera and Analysis Flow Views - iOS 16 Compatible
 //
 
 import SwiftUI
 import UIKit
 import PhotosUI
-
-// MARK: - CAMERA VIEW
-struct CameraView: View {
-    @EnvironmentObject var businessService: BusinessService
-    @EnvironmentObject var firebaseService: FirebaseService
-    
-    @State private var capturedImages: [UIImage] = []
-    @State private var showingCamera = false
-    @State private var showingPhotoLibrary = false
-    @State private var showingProcessing = false
-    @State private var analysisResult: AnalysisResult?
-    @State private var selectedItems: [PhotosPickerItem] = []
-    @State private var showingSettings = false
-    @State private var showingError = false
-    @State private var errorMessage = ""
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("ResellAI")
-                    .font(DesignSystem.titleFont)
-                    .foregroundColor(DesignSystem.primary)
-                
-                Spacer()
-                
-                // Usage indicator
-                if let user = firebaseService.currentUser {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(firebaseService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.secondary)
-                        
-                        if !firebaseService.canAnalyze {
-                            Text("Limit reached")
-                                .font(.caption2)
-                                .foregroundColor(.red)
-                        }
-                    }
-                }
-                
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(DesignSystem.secondary)
-                }
-            }
-            .padding(.horizontal, DesignSystem.spacing3)
-            .padding(.vertical, DesignSystem.spacing2)
-            
-            if capturedImages.isEmpty && !showingProcessing && analysisResult == nil {
-                // Initial camera state
-                InitialCameraState(
-                    onCamera: {
-                        checkCameraPermission { granted in
-                            if granted {
-                                showingCamera = true
-                            } else {
-                                errorMessage = "Camera access required to take photos"
-                                showingError = true
-                            }
-                        }
-                    },
-                    onLibrary: { showingPhotoLibrary = true }
-                )
-            } else if showingProcessing {
-                // Processing state
-                ProcessingView()
-            } else if let result = analysisResult {
-                // Results state
-                ReviewListingView(
-                    result: result,
-                    images: capturedImages,
-                    onNewPhoto: resetToCamera,
-                    onPostListing: postToEbay
-                )
-            } else {
-                // Photo preview state
-                PhotoPreviewView(
-                    images: capturedImages,
-                    onAnalyze: analyzePhotos,
-                    onAddMore: { showingPhotoLibrary = true },
-                    onReset: resetToCamera,
-                    canAnalyze: firebaseService.canAnalyze
-                )
-            }
-        }
-        .background(DesignSystem.background)
-        .sheet(isPresented: $showingCamera) {
-            CameraPickerView { images in
-                capturedImages.append(contentsOf: images)
-            }
-        }
-        .sheet(isPresented: $showingPhotoLibrary) {
-            PhotosPicker(
-                selection: $selectedItems,
-                maxSelectionCount: 8 - capturedImages.count,
-                matching: .images
-            ) {
-                Text("Select Photos")
-            }
-        }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-        }
-        .alert("Error", isPresented: $showingError) {
-            Button("OK") { }
-        } message: {
-            Text(errorMessage)
-        }
-        .onChange(of: selectedItems) { items in
-            Task {
-                var newImages: [UIImage] = []
-                for item in items {
-                    if let data = try? await item.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        newImages.append(image)
-                    }
-                }
-                DispatchQueue.main.async {
-                    capturedImages.append(contentsOf: newImages)
-                    selectedItems = []
-                }
-            }
-        }
-    }
-    
-    private func checkCameraPermission(completion: @escaping (Bool) -> Void) {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized:
-            completion(true)
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { granted in
-                DispatchQueue.main.async {
-                    completion(granted)
-                }
-            }
-        case .denied, .restricted:
-            completion(false)
-        @unknown default:
-            completion(false)
-        }
-    }
-    
-    private func analyzePhotos() {
-        guard firebaseService.canAnalyze else {
-            errorMessage = "Monthly analysis limit reached. Please upgrade your plan."
-            showingError = true
-            return
-        }
-        
-        showingProcessing = true
-        businessService.analyzeItem(capturedImages) { result in
-            DispatchQueue.main.async {
-                showingProcessing = false
-                if let result = result {
-                    analysisResult = result
-                } else {
-                    errorMessage = "Failed to analyze item. Please try again."
-                    showingError = true
-                }
-            }
-        }
-    }
-    
-    private func resetToCamera() {
-        capturedImages = []
-        analysisResult = nil
-        showingProcessing = false
-    }
-    
-    private func postToEbay() {
-        guard let result = analysisResult else { return }
-        guard firebaseService.canCreateListing else {
-            errorMessage = "Monthly listing limit reached. Please upgrade your plan."
-            showingError = true
-            return
-        }
-        
-        businessService.createEbayListing(from: result, images: capturedImages) { success, error in
-            DispatchQueue.main.async {
-                if success {
-                    resetToCamera()
-                } else {
-                    errorMessage = error ?? "Failed to create listing"
-                    showingError = true
-                }
-            }
-        }
-    }
-}
+import AVFoundation
 
 // MARK: - INITIAL CAMERA STATE
 struct InitialCameraState: View {
@@ -226,6 +36,7 @@ struct InitialCameraState: View {
                 Text("Take a photo or select from library")
                     .font(DesignSystem.bodyFont)
                     .foregroundColor(DesignSystem.secondary)
+                    .multilineTextAlignment(.center)
             }
             
             Spacer()
@@ -262,15 +73,15 @@ struct PhotoPreviewView: View {
                                 .clipped()
                                 .cornerRadius(DesignSystem.cornerRadius)
                             
-                            // Remove button
-                            Button(action: { /* Remove image */ }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.white)
-                                    .background(Color.black.opacity(0.6))
-                                    .clipShape(Circle())
-                            }
-                            .padding(8)
+                            // Image counter
+                            Text("\(index + 1)")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(.white)
+                                .frame(width: 24, height: 24)
+                                .background(Color.black.opacity(0.7))
+                                .clipShape(Circle())
+                                .padding(8)
                         }
                     }
                     
@@ -292,6 +103,19 @@ struct PhotoPreviewView: View {
                     }
                 }
                 .padding(.horizontal, DesignSystem.spacing3)
+                
+                // Photo count and tips
+                VStack(spacing: DesignSystem.spacing1) {
+                    Text("\(images.count) photo\(images.count == 1 ? "" : "s") selected")
+                        .font(DesignSystem.captionFont)
+                        .foregroundColor(DesignSystem.secondary)
+                    
+                    if images.count == 1 {
+                        Text("Add more angles for better results")
+                            .font(DesignSystem.captionFont)
+                            .foregroundColor(DesignSystem.neonGreen)
+                    }
+                }
                 
                 // Actions
                 VStack(spacing: DesignSystem.spacing2) {
@@ -345,10 +169,20 @@ struct ProcessingView: View {
                         .font(DesignSystem.bodyFont)
                         .foregroundColor(DesignSystem.secondary)
                         .animation(.easeInOut, value: businessService.analysisProgress)
+                    
+                    // Progress bar
+                    ProgressView(value: businessService.progressValue)
+                        .progressViewStyle(LinearProgressViewStyle(tint: DesignSystem.neonGreen))
+                        .frame(maxWidth: 200)
+                        .padding(.top, DesignSystem.spacing1)
                 }
             }
             
             Spacer()
+            
+            Text("This usually takes 10-15 seconds")
+                .font(DesignSystem.captionFont)
+                .foregroundColor(DesignSystem.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -407,22 +241,11 @@ struct ReviewListingView: View {
                 
                 // Market data summary
                 if let soldListingsCount = result.soldListingsCount {
-                    VStack(alignment: .leading, spacing: DesignSystem.spacing1) {
-                        Text("Market Data")
-                            .font(DesignSystem.headlineFont)
-                            .foregroundColor(DesignSystem.primary)
-                        
-                        Text("Based on \(soldListingsCount) recent sales")
-                            .font(DesignSystem.bodyFont)
-                            .foregroundColor(DesignSystem.secondary)
-                        
-                        if let demandLevel = result.demandLevel {
-                            Text("Demand: \(demandLevel)")
-                                .font(DesignSystem.captionFont)
-                                .foregroundColor(DesignSystem.secondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    MarketDataCard(
+                        soldListingsCount: soldListingsCount,
+                        competitorCount: result.competitorCount,
+                        demandLevel: result.demandLevel
+                    )
                     .padding(.horizontal, DesignSystem.spacing3)
                 }
                 
@@ -464,41 +287,24 @@ struct ReviewListingView: View {
                 .padding(.horizontal, DesignSystem.spacing3)
                 
                 // Listing preview
-                VStack(alignment: .leading, spacing: DesignSystem.spacing2) {
-                    Text("Listing Preview")
-                        .font(DesignSystem.headlineFont)
-                        .foregroundColor(DesignSystem.primary)
-                    
-                    VStack(alignment: .leading, spacing: DesignSystem.spacing1) {
-                        Text(result.title)
-                            .font(DesignSystem.bodyFont)
-                            .fontWeight(.semibold)
-                            .foregroundColor(DesignSystem.primary)
-                        
-                        Text(showingFullDescription ? result.description : String(result.description.prefix(100)) + "...")
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.secondary)
-                        
-                        Button(showingFullDescription ? "Show Less" : "Show More") {
-                            showingFullDescription.toggle()
-                        }
-                        .font(DesignSystem.captionFont)
-                        .foregroundColor(DesignSystem.neonGreen)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                ListingPreviewCard(
+                    title: result.title,
+                    description: result.description,
+                    showingFull: $showingFullDescription
+                )
                 .padding(.horizontal, DesignSystem.spacing3)
                 
                 // Actions
                 VStack(spacing: DesignSystem.spacing2) {
                     PrimaryButton(
-                        title: isPosting ? "Posting..." : "Post to eBay",
+                        title: isPosting ? "Posting to eBay..." : "Post to eBay",
                         action: {
                             isPosting = true
                             onPostListing()
-                        }
+                        },
+                        isEnabled: !isPosting,
+                        isLoading: isPosting
                     )
-                    .disabled(isPosting)
                     
                     SecondaryButton(title: "Take New Photo", action: onNewPhoto)
                 }
@@ -509,6 +315,83 @@ struct ReviewListingView: View {
     }
 }
 
+// MARK: - MARKET DATA CARD
+struct MarketDataCard: View {
+    let soldListingsCount: Int
+    let competitorCount: Int?
+    let demandLevel: String?
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.spacing1) {
+            Text("Market Data")
+                .font(DesignSystem.headlineFont)
+                .foregroundColor(DesignSystem.primary)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Based on \(soldListingsCount) recent sales")
+                    .font(DesignSystem.bodyFont)
+                    .foregroundColor(DesignSystem.secondary)
+                
+                if let competitorCount = competitorCount {
+                    Text("\(competitorCount) active listings")
+                        .font(DesignSystem.captionFont)
+                        .foregroundColor(DesignSystem.secondary)
+                }
+                
+                if let demandLevel = demandLevel {
+                    Text("Demand: \(demandLevel)")
+                        .font(DesignSystem.captionFont)
+                        .foregroundColor(demandLevel == "High" ? DesignSystem.neonGreen : DesignSystem.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(DesignSystem.spacing2)
+        .background(DesignSystem.tertiary)
+        .cornerRadius(DesignSystem.cornerRadius)
+    }
+}
+
+// MARK: - LISTING PREVIEW CARD
+struct ListingPreviewCard: View {
+    let title: String
+    let description: String
+    @Binding var showingFull: Bool
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.spacing2) {
+            Text("Listing Preview")
+                .font(DesignSystem.headlineFont)
+                .foregroundColor(DesignSystem.primary)
+            
+            VStack(alignment: .leading, spacing: DesignSystem.spacing1) {
+                Text(title)
+                    .font(DesignSystem.bodyFont)
+                    .fontWeight(.semibold)
+                    .foregroundColor(DesignSystem.primary)
+                
+                Text(showingFull ? description : String(description.prefix(150)) + (description.count > 150 ? "..." : ""))
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                
+                if description.count > 150 {
+                    Button(showingFull ? "Show Less" : "Show More") {
+                        showingFull.toggle()
+                    }
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.neonGreen)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(DesignSystem.spacing2)
+        .background(DesignSystem.tertiary)
+        .cornerRadius(DesignSystem.cornerRadius)
+    }
+}
+
+// MARK: - PRICE OPTION VIEW
 struct PriceOptionView: View {
     let title: String
     let price: Double
@@ -601,18 +484,95 @@ struct CameraPickerView: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - SETTINGS VIEW (Placeholder)
+// MARK: - SETTINGS VIEW
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var firebaseService: FirebaseService
+    @EnvironmentObject var businessService: BusinessService
     
     var body: some View {
         NavigationView {
-            VStack {
-                Text("Settings")
-                    .font(DesignSystem.titleFont)
-                Spacer()
+            List {
+                Section("Account") {
+                    if let user = firebaseService.currentUser {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(user.displayName ?? "User")
+                                .font(DesignSystem.bodyFont)
+                                .fontWeight(.semibold)
+                            
+                            Text(user.email ?? "")
+                                .font(DesignSystem.captionFont)
+                                .foregroundColor(DesignSystem.secondary)
+                        }
+                    }
+                    
+                    Button("Sign Out") {
+                        firebaseService.signOut()
+                    }
+                    .foregroundColor(.red)
+                }
+                
+                Section("eBay Connection") {
+                    HStack {
+                        Text("Status")
+                        Spacer()
+                        Text(businessService.isEbayAuthenticated ? "Connected" : "Not Connected")
+                            .foregroundColor(businessService.isEbayAuthenticated ? .green : .red)
+                    }
+                    
+                    if businessService.isEbayAuthenticated {
+                        HStack {
+                            Text("Account")
+                            Spacer()
+                            Text(businessService.ebayService.connectedUserName)
+                                .foregroundColor(DesignSystem.secondary)
+                        }
+                        
+                        Button("Disconnect eBay") {
+                            businessService.ebayService.signOut()
+                        }
+                        .foregroundColor(.red)
+                    }
+                }
+                
+                Section("Usage") {
+                    if let user = firebaseService.currentUser {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Analyses")
+                                Spacer()
+                                Text("\(firebaseService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
+                                    .foregroundColor(DesignSystem.secondary)
+                            }
+                            
+                            ProgressView(value: Double(firebaseService.monthlyAnalysisCount) / Double(user.monthlyAnalysisLimit))
+                                .progressViewStyle(LinearProgressViewStyle(tint: DesignSystem.neonGreen))
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Listings")
+                                Spacer()
+                                Text("\(firebaseService.monthlyListingCount)/\(user.monthlyListingLimit)")
+                                    .foregroundColor(DesignSystem.secondary)
+                            }
+                            
+                            ProgressView(value: Double(firebaseService.monthlyListingCount) / Double(user.monthlyListingLimit))
+                                .progressViewStyle(LinearProgressViewStyle(tint: DesignSystem.neonGreen))
+                        }
+                    }
+                }
+                
+                Section("App") {
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text(Configuration.version)
+                            .foregroundColor(DesignSystem.secondary)
+                    }
+                }
             }
-            .padding()
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

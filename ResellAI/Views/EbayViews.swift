@@ -2,7 +2,7 @@
 //  EbayViews.swift
 //  ResellAI
 //
-//  eBay Integration Views - CLEAN VERSION
+//  eBay Integration Views with User Account Display
 //
 
 import SwiftUI
@@ -18,48 +18,39 @@ struct EbayConnectView: View {
         VStack(spacing: DesignSystem.spacing4) {
             Spacer()
             
-            // eBay logo placeholder
-            RoundedRectangle(cornerRadius: DesignSystem.cornerRadius)
-                .fill(Color.blue)
-                .frame(width: 80, height: 80)
-                .overlay(
-                    Text("eBay")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(.white)
-                )
-            
+            // eBay logo and status
             VStack(spacing: DesignSystem.spacing2) {
-                Text("Connect to eBay")
-                    .font(DesignSystem.titleFont)
-                    .foregroundColor(DesignSystem.primary)
+                RoundedRectangle(cornerRadius: DesignSystem.cornerRadius)
+                    .fill(businessService.isEbayAuthenticated ? Color.blue : Color.gray)
+                    .frame(width: 80, height: 80)
+                    .overlay(
+                        Text("eBay")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(.white)
+                    )
                 
-                Text("Link your eBay account to automatically create listings")
-                    .font(DesignSystem.bodyFont)
-                    .foregroundColor(DesignSystem.secondary)
-                    .multilineTextAlignment(.center)
-                
-                // Connection status
                 VStack(spacing: DesignSystem.spacing1) {
-                    HStack {
-                        Circle()
-                            .fill(businessService.isEbayAuthenticated ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
-                        
-                        Text(businessService.ebayAuthStatus)
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.secondary)
-                    }
+                    Text("Connect to eBay")
+                        .font(DesignSystem.titleFont)
+                        .foregroundColor(DesignSystem.primary)
                     
-                    if businessService.isEbayAuthenticated {
-                        Text("Connected to eBay")
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.neonGreen)
-                    }
+                    Text("Link your eBay account to automatically create listings")
+                        .font(DesignSystem.bodyFont)
+                        .foregroundColor(DesignSystem.secondary)
+                        .multilineTextAlignment(.center)
                 }
+                
+                // Connection status indicator
+                ConnectionStatusCard(
+                    isConnected: businessService.isEbayAuthenticated,
+                    status: businessService.ebayAuthStatus,
+                    connectedUser: businessService.ebayService.connectedUserName
+                )
             }
             
             Spacer()
             
+            // Action buttons
             VStack(spacing: DesignSystem.spacing2) {
                 if businessService.isEbayAuthenticated {
                     PrimaryButton(title: "Continue to App") {
@@ -70,10 +61,17 @@ struct EbayConnectView: View {
                         businessService.ebayService.signOut()
                     }
                 } else {
-                    PrimaryButton(title: isConnecting ? "Connecting..." : "Connect eBay Account") {
-                        connectToEbay()
-                    }
-                    .disabled(isConnecting)
+                    PrimaryButton(
+                        title: isConnecting ? "Connecting..." : "Connect eBay Account",
+                        action: { connectToEbay() },
+                        isEnabled: !isConnecting,
+                        isLoading: isConnecting
+                    )
+                    
+                    Text("You'll be redirected to eBay to sign in")
+                        .font(DesignSystem.captionFont)
+                        .foregroundColor(DesignSystem.secondary)
+                        .multilineTextAlignment(.center)
                 }
             }
             .padding(.horizontal, DesignSystem.spacing3)
@@ -82,14 +80,14 @@ struct EbayConnectView: View {
         .background(DesignSystem.background)
         .alert("Connection Error", isPresented: $showingError) {
             Button("OK") { }
+            Button("Try Again") { connectToEbay() }
         } message: {
             Text(errorMessage)
         }
         .onAppear {
-            // Check authentication status
-            if businessService.isEbayAuthenticated {
-                print("✅ eBay already connected")
-            }
+            // Check authentication status on appear
+            print("🔍 eBay connection status: \(businessService.isEbayAuthenticated)")
+            print("🔍 eBay user: \(businessService.ebayService.connectedUserName)")
         }
     }
     
@@ -99,11 +97,68 @@ struct EbayConnectView: View {
             DispatchQueue.main.async {
                 isConnecting = false
                 if !success {
-                    errorMessage = "Failed to connect to eBay. Please try again."
+                    errorMessage = "Failed to connect to eBay. Please check your internet connection and try again."
                     showingError = true
                 }
             }
         }
+    }
+}
+
+// MARK: - CONNECTION STATUS CARD
+struct ConnectionStatusCard: View {
+    let isConnected: Bool
+    let status: String
+    let connectedUser: String
+    
+    var body: some View {
+        VStack(spacing: DesignSystem.spacing2) {
+            HStack {
+                Circle()
+                    .fill(isConnected ? Color.green : Color.red)
+                    .frame(width: 12, height: 12)
+                
+                Text(isConnected ? "Connected" : "Not Connected")
+                    .font(DesignSystem.bodyFont)
+                    .fontWeight(.semibold)
+                    .foregroundColor(isConnected ? Color.green : Color.red)
+            }
+            
+            if isConnected && !connectedUser.isEmpty {
+                VStack(spacing: 4) {
+                    Text("eBay Account")
+                        .font(DesignSystem.captionFont)
+                        .foregroundColor(DesignSystem.secondary)
+                    
+                    Text(connectedUser)
+                        .font(DesignSystem.bodyFont)
+                        .fontWeight(.medium)
+                        .foregroundColor(DesignSystem.primary)
+                }
+            } else if !isConnected {
+                Text("Connect your account to start selling")
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            // Additional status info
+            if !status.isEmpty && status != "Connected" && status != "Not Connected" {
+                Text(status)
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(DesignSystem.spacing2)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.cornerRadius)
+                .fill(isConnected ? Color.green.opacity(0.1) : Color.red.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignSystem.cornerRadius)
+                        .stroke(isConnected ? Color.green.opacity(0.3) : Color.red.opacity(0.3), lineWidth: 1)
+                )
+        )
     }
 }
 
@@ -165,26 +220,13 @@ struct EbayConnectSheet: View {
                 
                 Spacer()
                 
-                // Connection status
-                if businessService.isEbayAuthenticated {
-                    VStack(spacing: DesignSystem.spacing1) {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(Color.green)
-                            Text("Connected to eBay")
-                                .font(DesignSystem.bodyFont)
-                                .foregroundColor(Color.green)
-                        }
-                        
-                        Text("Ready to create listings")
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.secondary)
-                    }
-                    .padding(DesignSystem.spacing2)
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(DesignSystem.cornerRadius)
-                    .padding(.horizontal, DesignSystem.spacing3)
-                }
+                // Current connection status
+                ConnectionStatusCard(
+                    isConnected: businessService.isEbayAuthenticated,
+                    status: businessService.ebayAuthStatus,
+                    connectedUser: businessService.ebayService.connectedUserName
+                )
+                .padding(.horizontal, DesignSystem.spacing3)
                 
                 // Actions
                 VStack(spacing: DesignSystem.spacing2) {
@@ -193,14 +235,16 @@ struct EbayConnectSheet: View {
                             dismiss()
                         }
                         
-                        SecondaryButton(title: "Disconnect") {
+                        SecondaryButton(title: "Disconnect Account") {
                             businessService.ebayService.signOut()
                         }
                     } else {
-                        PrimaryButton(title: isConnecting ? "Connecting..." : "Connect to eBay") {
-                            connectToEbay()
-                        }
-                        .disabled(isConnecting)
+                        PrimaryButton(
+                            title: isConnecting ? "Connecting..." : "Connect to eBay",
+                            action: { connectToEbay() },
+                            isEnabled: !isConnecting,
+                            isLoading: isConnecting
+                        )
                         
                         if isConnecting {
                             HStack {
@@ -211,6 +255,11 @@ struct EbayConnectSheet: View {
                                     .foregroundColor(DesignSystem.secondary)
                             }
                             .padding(.top, DesignSystem.spacing1)
+                        } else {
+                            Text("You'll be redirected to eBay to sign in securely")
+                                .font(DesignSystem.captionFont)
+                                .foregroundColor(DesignSystem.secondary)
+                                .multilineTextAlignment(.center)
                         }
                     }
                 }
@@ -243,6 +292,7 @@ struct EbayConnectSheet: View {
                 isConnecting = false
                 if success {
                     print("✅ eBay connection successful")
+                    // Don't auto-dismiss to let user see the connected status
                 } else {
                     errorMessage = "Failed to connect to eBay. Please check your internet connection and try again."
                     showingError = true
@@ -278,6 +328,29 @@ struct BenefitRow: View {
             }
             
             Spacer()
+        }
+    }
+}
+
+// MARK: - EBAY ACCOUNT STATUS VIEW (for use in other parts of the app)
+struct EbayAccountStatus: View {
+    @EnvironmentObject var businessService: BusinessService
+    
+    var body: some View {
+        HStack {
+            Circle()
+                .fill(businessService.isEbayAuthenticated ? Color.green : Color.red)
+                .frame(width: 8, height: 8)
+            
+            if businessService.isEbayAuthenticated {
+                Text("eBay: \(businessService.ebayService.connectedUserName)")
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.secondary)
+            } else {
+                Text("eBay: Not connected")
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.secondary)
+            }
         }
     }
 }

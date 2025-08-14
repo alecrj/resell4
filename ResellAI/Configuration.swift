@@ -2,7 +2,7 @@
 //  Configuration.swift
 //  ResellAI
 //
-//  Complete API Configuration with Environment Variables and FIXED eBay OAuth
+//  Complete API Configuration with Production eBay Credentials
 //
 
 import Foundation
@@ -21,13 +21,13 @@ struct Configuration {
     
     static let googleCloudAPIKey = ProcessInfo.processInfo.environment["GOOGLE_CLOUD_API_KEY"] ?? ""
     
-    // MARK: - eBay OAuth 2.0 Configuration (PRODUCTION - UPDATED)
+    // MARK: - eBay OAuth 2.0 Configuration (PRODUCTION - FROM USER'S CREDENTIALS)
     static let ebayAPIKey = "AlecRodr-resell-PRD-d0bc91504-be3e553a"
     static let ebayClientSecret = "PRD-0bc91504af12-57f0-49aa-8bb7-763a"
     static let ebayDevId = "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
     static let ebayEnvironment = "PRODUCTION"
     
-    // eBay OAuth endpoints and redirect URI (CORRECTED)
+    // eBay OAuth endpoints and redirect URI
     static let ebayRedirectURI = "https://resellai-auth.vercel.app/ebay-callback"
     static let ebayAppScheme = "resellai://auth/ebay"
     static let ebayRuName = "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
@@ -35,11 +35,11 @@ struct Configuration {
     // MARK: - API Endpoints
     static let openAIEndpoint = "https://api.openai.com/v1/chat/completions"
     
-    // eBay API endpoints (Production - FIXED)
+    // eBay API endpoints (Production)
     static let ebayProductionAPIBase = "https://api.ebay.com"
     static let ebayAuthBase = "https://auth.ebay.com"
     static let ebayTokenEndpoint = "https://api.ebay.com/identity/v1/oauth2/token"
-    static let ebayUserEndpoint = "https://api.ebay.com/commerce/identity/v1/user/"
+    static let ebayUserEndpoint = "https://apiz.ebay.com/commerce/identity/v1/user/"
     
     // eBay Browse API (for market data)
     static let ebayBrowseAPI = "https://api.ebay.com/buy/browse/v1"
@@ -74,18 +74,13 @@ struct Configuration {
     static let ebayDefaultReturnPeriod = 30
     static let ebayListingDuration = 7
     
-    // MARK: - eBay OAuth Scopes (FIXED WITH MINIMAL FALLBACK)
+    // MARK: - eBay OAuth Scopes (PRODUCTION READY)
     static let ebayRequiredScopes: [String] = [
         "https://api.ebay.com/oauth/api_scope",
         "https://api.ebay.com/oauth/api_scope/sell.inventory",
         "https://api.ebay.com/oauth/api_scope/sell.account",
         "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
         "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly"
-    ]
-    
-    // Minimal scopes for fallback authentication
-    static let ebayMinimalScopes: [String] = [
-        "https://api.ebay.com/oauth/api_scope"
     ]
     
     // MARK: - Rate Limiting
@@ -146,8 +141,7 @@ struct Configuration {
             print("• Token Endpoint: \(ebayTokenEndpoint)")
             print("• User Endpoint: \(ebayUserEndpoint)")
             print("• Inventory API: \(ebaySellInventoryAPI)")
-            print("• Required Scopes: \(ebayRequiredScopes.count) scopes")
-            print("• Minimal Scopes: \(ebayMinimalScopes.count) scopes")
+            print("• Scopes: \(ebayRequiredScopes.count) required scopes")
         }
     }
     
