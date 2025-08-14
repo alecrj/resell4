@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Main App Coordinator - Clean Version
+//  Main App Coordinator
 //
 
 import SwiftUI
@@ -59,8 +59,6 @@ struct MainAppView: View {
     }
 }
 
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
-    }
+#Preview {
+    ContentView()
 }
