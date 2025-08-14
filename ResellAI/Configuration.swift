@@ -27,8 +27,8 @@ struct Configuration {
     static let ebayDevId = "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
     static let ebayEnvironment = "PRODUCTION"
     
-    // eBay OAuth endpoints and redirect URI
-    static let ebayRedirectURI = "https://resellai-auth.vercel.app/ebay-callback"
+    // eBay OAuth endpoints and redirect URI - FIXED TO MATCH EBAY DEVELOPER SETTINGS
+    static let ebayRedirectURI = "https://resellaiapp.com/ebay-callback.html"
     static let ebayAppScheme = "resellai://auth/ebay"
     static let ebayRuName = "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
     

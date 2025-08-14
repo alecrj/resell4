@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Main App Coordinator with eBay OAuth Handling
+//  Main App Coordinator with Fixed eBay OAuth Handling
 //
 
 import SwiftUI
@@ -50,12 +50,26 @@ struct ContentView: View {
         print("📋 URL scheme: \(url.scheme ?? "nil")")
         print("📋 URL host: \(url.host ?? "nil")")
         print("📋 URL path: \(url.path)")
+        print("📋 URL query: \(url.query ?? "nil")")
         
         // Handle eBay OAuth callback
         if url.scheme == "resellai" && url.host == "auth" {
             if url.path.contains("ebay") || url.absoluteString.contains("ebay") {
-                print("🔗 Handling eBay OAuth callback")
+                print("🔗 Handling eBay Auth callback")
+                print("🔍 Full eBay callback URL: \(url.absoluteString)")
+                
+                // Parse query parameters for debugging
+                let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+                if let queryItems = components?.queryItems {
+                    print("🔍 eBay callback parameters:")
+                    for item in queryItems {
+                        print("   • \(item.name): \(item.value ?? "nil")")
+                    }
+                }
+                
+                // Handle the callback
                 businessService.handleEbayAuthCallback(url: url)
+                
             } else {
                 print("⚠️ Unknown auth callback: \(url)")
             }
@@ -90,10 +104,13 @@ struct MainAppView: View {
                 print("• Connected user: \(businessService.ebayService.connectedUserName)")
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("EbayAuthCompleted"))) { _ in
+            print("📱 Received eBay auth completion notification")
+        }
     }
 }
 
-// MARK: - MAIN CAMERA VIEW (Renamed from CameraView to avoid confusion)
+// MARK: - MAIN CAMERA VIEW
 struct MainCameraView: View {
     @EnvironmentObject var businessService: BusinessService
     @EnvironmentObject var firebaseService: FirebaseService
