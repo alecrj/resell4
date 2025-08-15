@@ -1,16 +1,8 @@
 //
-//  AIAnalysisService.swift
+//  AnalysisService.swift
 //  ResellAI
 //
-//  Created by Alec on 8/14/25.
-//
-
-
-//
-//  AnalysisServices.swift
-//  ResellAI
-//
-//  AI Analysis, Google Sheets, and Inventory Management Services
+//  Enhanced AI Analysis with Expert-Level Market Intelligence
 //
 
 import SwiftUI
@@ -18,12 +10,12 @@ import Foundation
 import Vision
 import FirebaseFirestore
 
-// MARK: - AI ANALYSIS SERVICE
+// MARK: - ENHANCED AI ANALYSIS SERVICE
 class AIAnalysisService: ObservableObject {
     private let apiKey = Configuration.openAIKey
     private let endpoint = Configuration.openAIEndpoint
     
-    func identifyProductPrecisely(images: [UIImage], completion: @escaping (ProductIdentificationResult?) -> Void) {
+    func analyzeItemWithMarketIntelligence(images: [UIImage], completion: @escaping (ExpertAnalysisResult?) -> Void) {
         guard !apiKey.isEmpty else {
             print("❌ API key not configured")
             completion(nil)
@@ -43,12 +35,12 @@ class AIAnalysisService: ObservableObject {
             return
         }
         
-        print("📷 Processing \(compressedImages.count) images for AI analysis")
+        print("🧠 Starting expert-level analysis with \(compressedImages.count) images")
         
         var content: [[String: Any]] = [
             [
                 "type": "text",
-                "text": buildPrecisionPrompt()
+                "text": buildExpertAnalysisPrompt()
             ]
         ]
         
@@ -63,61 +55,85 @@ class AIAnalysisService: ObservableObject {
         }
         
         let requestBody: [String: Any] = [
-            "model": "gpt-4o",
+            "model": "gpt-4o-2024-11-20", // Latest GPT-4o model
             "messages": [
                 [
                     "role": "user",
                     "content": content
                 ]
             ],
-            "max_tokens": 1000,
+            "max_tokens": 2000,
             "temperature": 0.1
         ]
         
-        performRequest(requestBody: requestBody, completion: completion)
+        performExpertAnalysis(requestBody: requestBody, completion: completion)
     }
     
-    private func buildPrecisionPrompt() -> String {
+    private func buildExpertAnalysisPrompt() -> String {
         return """
-        Analyze these product images with maximum precision for reselling.
-
-        Look at EVERY detail:
-
-        FOR SHOES/SNEAKERS:
-        - Read tongue tags, heel tabs, insoles for exact model names
-        - Identify specific colorways (not just "white" - like "Triple White" or "Chicago")
-        - Find size from tags, labels, or size stickers  
-        - Look for style codes (CW2288-111, etc.)
-        - Note special editions, collaborations
-
-        FOR CLOTHING:
-        - Read all tags and labels carefully
-        - Identify exact style names from tags
-        - Find size tags, care labels
-        - Note exact colors and patterns
-        - Look for style/SKU numbers
-
-        FOR ELECTRONICS:
-        - Read model numbers, serial numbers
-        - Identify storage capacity, exact model
-        - Note generation (iPhone 14 Pro Max, not just iPhone)
-        - Check condition indicators
-
-        Respond with valid JSON only:
+        You are an expert product analyst and reseller with deep knowledge across:
+        • Sneakers: Jordan, Nike, Adidas, Yeezy, collaborations, OG vs retro releases
+        • Streetwear: Supreme, Off-White, Fear of God, vintage pieces, limited drops
+        • Electronics: iPhones, gaming consoles, GPUs, specific model significance
+        • Luxury: Rolex, LV, Gucci, authentication points, production years
+        • Collectibles: Pokémon, vintage toys, limited editions, grading importance
+        
+        Analyze these images like you're a professional reseller evaluating an item to flip.
+        
+        IDENTIFICATION PROCESS:
+        1. Look at EVERY detail in the images - tags, labels, serial numbers, colorways
+        2. Identify the EXACT model, not just brand (e.g., "Air Jordan 1 High OG 'Chicago' 2015 retro" not just "Jordan 1")
+        3. Check for authentication markers, production codes, special features
+        4. Assess condition with reseller precision (small scuffs matter on expensive items)
+        5. Note size if visible (crucial for sneaker/clothing values)
+        
+        MARKET INTELLIGENCE:
+        Consider these factors like a market expert:
+        • RARITY: Limited production, collaboration status, special releases
+        • HYPE LEVEL: Current demand, trending status, influencer impact  
+        • HISTORICAL SIGNIFICANCE: OG release vs retro, anniversary editions, first colorways
+        • CONDITION IMPACT: How condition affects THIS specific item (deadstock vs worn matters more for Jordans than basic Nikes)
+        • SIZE DYNAMICS: Popular sizes command premiums on hyped items
+        • SEASONAL TRENDS: Holiday releases, back-to-school, summer drops
+        • COLLABORATION PREMIUM: Off-White, Travis Scott, Fragment, etc. add massive value
+        • AGE & VINTAGE VALUE: Some items appreciate, others depreciate
+        
+        PRICING STRATEGY:
+        Provide three price points:
+        • QUICK SALE: Move within 3-7 days (conservative but fast)
+        • MARKET PRICE: Fair market value for normal 2-4 week sale
+        • PATIENT SALE: Wait for right buyer, maximize profit (2-3+ months)
+        
+        RESPOND IN VALID JSON:
         {
-            "product_name": "EXACT specific product name with model",
-            "brand": "brand name",  
-            "category": "specific category",
-            "condition": "detailed condition based on visible wear",
-            "model_number": "specific model/style code if visible",
-            "size": "exact size from tags (US 9, Large, 64GB, etc.)",
-            "colorway": "EXACT color name (Triple White, Chicago, Navy Blue, etc.)",
-            "title": "optimized title with key details",
-            "description": "detailed description mentioning condition and features",
-            "keywords": ["specific", "searchable", "keywords"]
+            "exact_product_name": "Full specific name with year, colorway, special edition details",
+            "brand": "Brand name",
+            "category": "Specific category",
+            "condition_assessment": "Detailed condition with reseller perspective",
+            "size": "Size if visible",
+            "year_released": "Release year if known",
+            "collaboration": "Collaboration details if applicable",
+            "rarity_level": "Common/Limited/Rare/Grail",
+            "hype_status": "Dead/Low/Medium/High/Extreme",
+            "quick_sale_price": 45.00,
+            "market_price": 65.00,
+            "patient_sale_price": 95.00,
+            "price_reasoning": "Detailed explanation of why it's worth this much - consider collaboration, rarity, condition impact, size, trends",
+            "authenticity_confidence": "High/Medium/Low with reason",
+            "key_selling_points": ["Feature 1", "Feature 2", "Feature 3"],
+            "condition_notes": ["Any flaws or wear patterns"],
+            "sourcing_advice": "Maximum buy price and where to find similar items",
+            "listing_title": "SEO-optimized eBay title",
+            "listing_description": "Professional description highlighting key value drivers",
+            "profit_potential": "1-10 score based on demand vs supply",
+            "seasonal_factors": "Any timing considerations for selling",
+            "comparable_sales": "What similar items have sold for recently",
+            "red_flags": ["Any authenticity or condition concerns"]
         }
-
-        Only respond with JSON. Be as specific as possible.
+        
+        Be as specific as possible. Instead of "Nike sneaker worth $80" say "2019 Nike Air Max 1 'Anniversary' retro in white/red colorway, excellent condition with minimal heel drag, worth $125 because it's the OG colorway that started the Air Max line, popular size, and condition is crucial for this model since creasing and sole yellowing significantly impact value."
+        
+        Think like you're explaining to another reseller WHY this item is worth what you're pricing it at.
         """
     }
     
@@ -150,7 +166,7 @@ class AIAnalysisService: ObservableObject {
         return imageData
     }
     
-    private func performRequest(requestBody: [String: Any], completion: @escaping (ProductIdentificationResult?) -> Void) {
+    private func performExpertAnalysis(requestBody: [String: Any], completion: @escaping (ExpertAnalysisResult?) -> Void) {
         guard let url = URL(string: endpoint) else {
             print("❌ Invalid endpoint")
             completion(nil)
@@ -192,12 +208,12 @@ class AIAnalysisService: ObservableObject {
                 return
             }
             
-            self.parseResponse(data: data, completion: completion)
+            self.parseExpertAnalysis(data: data, completion: completion)
             
         }.resume()
     }
     
-    private func parseResponse(data: Data, completion: @escaping (ProductIdentificationResult?) -> Void) {
+    private func parseExpertAnalysis(data: Data, completion: @escaping (ExpertAnalysisResult?) -> Void) {
         do {
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let choices = json["choices"] as? [[String: Any]],
@@ -207,12 +223,14 @@ class AIAnalysisService: ObservableObject {
                 
                 let cleanedContent = cleanJSONResponse(content)
                 
-                if let result = parseProductJSON(cleanedContent) {
-                    print("✅ AI identified: \(result.exactProduct)")
+                if let result = parseExpertJSON(cleanedContent) {
+                    print("✅ Expert analysis complete: \(result.exactProductName)")
+                    print("💰 Market Price: $\(String(format: "%.2f", result.marketPrice))")
+                    print("🎯 Reasoning: \(result.priceReasoning)")
                     completion(result)
                 } else {
-                    print("❌ Failed to parse AI response")
-                    completion(createFallbackResult(from: content))
+                    print("❌ Failed to parse expert analysis")
+                    completion(createFallbackAnalysis(from: content))
                 }
             } else {
                 print("❌ Invalid response structure")
@@ -240,41 +258,62 @@ class AIAnalysisService: ObservableObject {
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
-    private func parseProductJSON(_ jsonString: String) -> ProductIdentificationResult? {
+    private func parseExpertJSON(_ jsonString: String) -> ExpertAnalysisResult? {
         guard let data = jsonString.data(using: .utf8) else { return nil }
         
         do {
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 
-                let productName = json["product_name"] as? String ?? json["name"] as? String ?? "Unknown Item"
+                let exactProductName = json["exact_product_name"] as? String ?? "Unknown Item"
                 let brand = json["brand"] as? String ?? ""
                 let category = json["category"] as? String ?? "Other"
-                let condition = json["condition"] as? String ?? "Used"
-                let modelNumber = json["model_number"] as? String
+                let conditionAssessment = json["condition_assessment"] as? String ?? "Used"
                 let size = json["size"] as? String
-                let colorway = json["colorway"] as? String
-                let title = json["title"] as? String ?? productName
-                let description = json["description"] as? String ?? "Item in good condition"
-                let keywords = json["keywords"] as? [String] ?? []
+                let yearReleased = json["year_released"] as? String
+                let collaboration = json["collaboration"] as? String
+                let rarityLevel = json["rarity_level"] as? String ?? "Common"
+                let hypeStatus = json["hype_status"] as? String ?? "Low"
                 
-                return ProductIdentificationResult(
-                    exactProduct: productName,
+                let quickSalePrice = json["quick_sale_price"] as? Double ?? 25.0
+                let marketPrice = json["market_price"] as? Double ?? 45.0
+                let patientSalePrice = json["patient_sale_price"] as? Double ?? 65.0
+                
+                let priceReasoning = json["price_reasoning"] as? String ?? "Market analysis based on similar items"
+                let authenticityConfidence = json["authenticity_confidence"] as? String ?? "Medium"
+                let keySellингPoints = json["key_selling_points"] as? [String] ?? []
+                let conditionNotes = json["condition_notes"] as? [String] ?? []
+                let sourcingAdvice = json["sourcing_advice"] as? String ?? "Research similar items"
+                let listingTitle = json["listing_title"] as? String ?? exactProductName
+                let listingDescription = json["listing_description"] as? String ?? "Quality item in good condition"
+                let profitPotential = json["profit_potential"] as? Int ?? 5
+                let seasonalFactors = json["seasonal_factors"] as? String
+                let comparableSales = json["comparable_sales"] as? String
+                let redFlags = json["red_flags"] as? [String] ?? []
+                
+                return ExpertAnalysisResult(
+                    exactProductName: exactProductName,
                     brand: brand,
                     category: category,
-                    subcategory: nil,
-                    modelNumber: modelNumber,
-                    styleCode: modelNumber,
+                    conditionAssessment: conditionAssessment,
                     size: size,
-                    colorway: colorway,
-                    releaseYear: nil,
-                    title: title,
-                    description: description,
-                    keywords: keywords,
-                    aiAssessedCondition: condition,
-                    confidence: 0.9,
-                    authenticityRisk: "medium",
-                    estimatedAge: nil,
-                    completeness: "complete"
+                    yearReleased: yearReleased,
+                    collaboration: collaboration,
+                    rarityLevel: rarityLevel,
+                    hypeStatus: hypeStatus,
+                    quickSalePrice: quickSalePrice,
+                    marketPrice: marketPrice,
+                    patientSalePrice: patientSalePrice,
+                    priceReasoning: priceReasoning,
+                    authenticityConfidence: authenticityConfidence,
+                    keySellingPoints: keySellințPoints,
+                    conditionNotes: conditionNotes,
+                    sourcingAdvice: sourcingAdvice,
+                    listingTitle: listingTitle,
+                    listingDescription: listingDescription,
+                    profitPotential: profitPotential,
+                    seasonalFactors: seasonalFactors,
+                    comparableSales: comparableSales,
+                    redFlags: redFlags
                 )
             }
         } catch {
@@ -284,422 +323,155 @@ class AIAnalysisService: ObservableObject {
         return nil
     }
     
-    private func createFallbackResult(from content: String) -> ProductIdentificationResult? {
+    private func createFallbackAnalysis(from content: String) -> ExpertAnalysisResult? {
         let words = content.components(separatedBy: .whitespaces)
         let productName = words.count > 2 ? Array(words.prefix(3)).joined(separator: " ") : "Unknown Item"
         
-        return ProductIdentificationResult(
-            exactProduct: productName,
+        return ExpertAnalysisResult(
+            exactProductName: productName,
             brand: "",
             category: "Other",
-            subcategory: nil,
-            modelNumber: nil,
-            styleCode: nil,
+            conditionAssessment: "Used - condition assessment incomplete",
             size: nil,
-            colorway: nil,
-            releaseYear: nil,
-            title: productName,
-            description: "Item analysis incomplete",
-            keywords: [],
-            aiAssessedCondition: "Used",
-            confidence: 0.3,
-            authenticityRisk: "high",
-            estimatedAge: nil,
-            completeness: "incomplete"
+            yearReleased: nil,
+            collaboration: nil,
+            rarityLevel: "Unknown",
+            hypeStatus: "Unknown",
+            quickSalePrice: 15.0,
+            marketPrice: 25.0,
+            patientSalePrice: 35.0,
+            priceReasoning: "Analysis incomplete - using conservative estimates",
+            authenticityConfidence: "Low - insufficient data",
+            keySellingPoints: [],
+            conditionNotes: ["Analysis incomplete"],
+            sourcingAdvice: "Research item thoroughly before purchasing",
+            listingTitle: productName,
+            listingDescription: "Item needs additional research",
+            profitPotential: 3,
+            seasonalFactors: nil,
+            comparableSales: nil,
+            redFlags: ["Analysis incomplete"]
         )
     }
 }
 
-// MARK: - GOOGLE SHEETS SERVICE
-class GoogleSheetsService: ObservableObject {
-    @Published var isSyncing = false
-    @Published var syncStatus = "Ready"
-    @Published var lastSyncDate: Date?
+// MARK: - EXPERT ANALYSIS RESULT MODEL
+struct ExpertAnalysisResult: Identifiable, Codable {
+    let id = UUID()
+    let exactProductName: String
+    let brand: String
+    let category: String
+    let conditionAssessment: String
+    let size: String?
+    let yearReleased: String?
+    let collaboration: String?
+    let rarityLevel: String
+    let hypeStatus: String
+    let quickSalePrice: Double
+    let marketPrice: Double
+    let patientSalePrice: Double
+    let priceReasoning: String
+    let authenticityConfidence: String
+    let keySellingPoints: [String]
+    let conditionNotes: [String]
+    let sourcingAdvice: String
+    let listingTitle: String
+    let listingDescription: String
+    let profitPotential: Int
+    let seasonalFactors: String?
+    let comparableSales: String?
+    let redFlags: [String]
     
-    private let scriptURL = Configuration.googleScriptURL
-    private let spreadsheetID = Configuration.spreadsheetID
-    
-    func authenticate() {
-        guard !scriptURL.isEmpty else {
-            print("❌ Google Sheets not configured")
-            return
-        }
-        
-        print("📊 Google Sheets authenticated")
-        syncStatus = "Connected"
+    // Convert to AnalysisResult for compatibility
+    func toAnalysisResult() -> AnalysisResult {
+        return AnalysisResult(
+            name: exactProductName,
+            brand: brand,
+            category: category,
+            condition: conditionAssessment,
+            title: listingTitle,
+            description: listingDescription,
+            keywords: extractKeywords(),
+            suggestedPrice: marketPrice,
+            quickPrice: quickSalePrice,
+            premiumPrice: patientSalePrice,
+            averagePrice: marketPrice,
+            marketConfidence: authenticityConfidenceScore(),
+            soldListingsCount: nil,
+            competitorCount: nil,
+            demandLevel: hypeStatus,
+            listingStrategy: "Fixed Price",
+            sourcingTips: [sourcingAdvice],
+            aiConfidence: authenticityConfidenceScore(),
+            resalePotential: profitPotential,
+            priceRange: EbayPriceRange(
+                low: quickSalePrice,
+                high: patientSalePrice,
+                average: marketPrice
+            ),
+            recentSales: [],
+            exactModel: extractModel(),
+            styleCode: nil,
+            size: size,
+            colorway: extractColorway(),
+            releaseYear: yearReleased,
+            subcategory: category
+        )
     }
     
-    func syncAllItems(_ items: [InventoryItem]) {
-        guard !scriptURL.isEmpty else {
-            print("❌ Google Sheets not configured")
-            return
+    private func extractKeywords() -> [String] {
+        var keywords: Set<String> = []
+        
+        let nameWords = exactProductName.lowercased().components(separatedBy: .whitespaces)
+        keywords.formUnion(nameWords.filter { $0.count > 2 })
+        
+        if !brand.isEmpty {
+            keywords.insert(brand.lowercased())
         }
         
-        guard !items.isEmpty else {
-            print("⚠️ No items to sync")
-            return
+        if let collaboration = collaboration, !collaboration.isEmpty {
+            keywords.insert(collaboration.lowercased())
         }
         
-        DispatchQueue.main.async {
-            self.isSyncing = true
-            self.syncStatus = "Syncing \(items.count) items..."
-        }
-        
-        let itemsData = items.map { item in
-            return [
-                "itemNumber": item.itemNumber,
-                "code": item.inventoryCode,
-                "name": item.name,
-                "category": item.category,
-                "brand": item.brand,
-                "purchasePrice": item.purchasePrice,
-                "suggestedPrice": item.suggestedPrice,
-                "actualPrice": item.actualPrice ?? 0,
-                "source": item.source,
-                "condition": item.condition,
-                "status": item.status.rawValue,
-                "dateAdded": ISO8601DateFormatter().string(from: item.dateAdded),
-                "dateListed": item.dateListed != nil ? ISO8601DateFormatter().string(from: item.dateListed!) : "",
-                "dateSold": item.dateSold != nil ? ISO8601DateFormatter().string(from: item.dateSold!) : "",
-                "storageLocation": item.storageLocation,
-                "binNumber": item.binNumber
-            ]
-        }
-        
-        let requestBody: [String: Any] = [
-            "action": "syncItems",
-            "items": itemsData
-        ]
-        
-        guard let url = URL(string: scriptURL) else {
-            DispatchQueue.main.async {
-                self.isSyncing = false
-                self.syncStatus = "Invalid script URL"
-            }
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        } catch {
-            DispatchQueue.main.async {
-                self.isSyncing = false
-                self.syncStatus = "Failed to prepare data"
-            }
-            return
-        }
-        
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            DispatchQueue.main.async {
-                self?.isSyncing = false
-                
-                if let error = error {
-                    self?.syncStatus = "Sync failed: \(error.localizedDescription)"
-                    print("❌ Google Sheets sync error: \(error)")
-                    return
-                }
-                
-                if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                    self?.syncStatus = "✅ Synced \(items.count) items"
-                    self?.lastSyncDate = Date()
-                    print("✅ Google Sheets sync successful")
-                } else {
-                    self?.syncStatus = "Sync failed"
-                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
-                        print("❌ Google Sheets error: \(errorString)")
-                    }
-                }
-            }
-        }.resume()
-    }
-}
-
-// MARK: - INVENTORY MANAGER
-class InventoryManager: ObservableObject {
-    @Published var items: [InventoryItem] = []
-    
-    private let userDefaults = UserDefaults.standard
-    private let itemsKey = "SavedInventoryItems"
-    private let migrationKey = "DataMigrationV10_Completed"
-    private let categoryCountersKey = "CategoryCounters"
-    
-    @Published var categoryCounters: [String: Int] = [:]
-    
-    private weak var firebaseService: FirebaseService?
-    private let db = Firestore.firestore()
-    
-    init() {
-        performDataMigrationIfNeeded()
-        loadCategoryCounters()
-        loadItems()
+        return Array(keywords.prefix(8))
     }
     
-    func initialize(with firebaseService: FirebaseService) {
-        self.firebaseService = firebaseService
-        print("📱 InventoryManager initialized with Firebase")
-        
-        if firebaseService.isAuthenticated {
-            loadItemsFromFirebase()
+    private func authenticityConfidenceScore() -> Double {
+        switch authenticityConfidence.lowercased() {
+        case "high": return 0.9
+        case "medium": return 0.7
+        case "low": return 0.4
+        default: return 0.6
         }
     }
     
-    private func performDataMigrationIfNeeded() {
-        if !userDefaults.bool(forKey: migrationKey) {
-            print("🔄 Performing data migration...")
-            userDefaults.removeObject(forKey: itemsKey)
-            userDefaults.removeObject(forKey: categoryCountersKey)
-            userDefaults.set(true, forKey: migrationKey)
-            print("✅ Data migration completed")
+    private func extractModel() -> String? {
+        // Try to extract model from product name
+        let components = exactProductName.components(separatedBy: " ")
+        if components.count > 2 {
+            return components[1...2].joined(separator: " ")
         }
+        return nil
     }
     
-    private func loadItemsFromFirebase() {
-        firebaseService?.loadUserInventory { [weak self] firebaseItems in
-            DispatchQueue.main.async {
-                let localItems = firebaseItems.map { firebaseItem in
-                    InventoryItem(
-                        itemNumber: firebaseItem.itemNumber,
-                        name: firebaseItem.name,
-                        category: firebaseItem.category,
-                        purchasePrice: firebaseItem.purchasePrice,
-                        suggestedPrice: firebaseItem.suggestedPrice,
-                        source: firebaseItem.source,
-                        condition: firebaseItem.condition,
-                        title: firebaseItem.title,
-                        description: firebaseItem.description,
-                        keywords: firebaseItem.keywords,
-                        status: ItemStatus(rawValue: firebaseItem.status) ?? .sourced,
-                        dateAdded: firebaseItem.dateAdded,
-                        actualPrice: firebaseItem.actualPrice,
-                        dateListed: firebaseItem.dateListed,
-                        dateSold: firebaseItem.dateSold,
-                        ebayURL: firebaseItem.ebayURL,
-                        brand: firebaseItem.brand,
-                        storageLocation: firebaseItem.storageLocation,
-                        binNumber: firebaseItem.binNumber,
-                        isPackaged: firebaseItem.isPackaged,
-                        packagedDate: firebaseItem.packagedDate
-                    )
-                }
-                
-                self?.items = localItems
-                print("✅ Loaded \(localItems.count) items from Firebase")
-            }
-        }
-    }
-    
-    func generateInventoryCode(for category: String) -> String {
-        let inventoryCategory = mapCategoryToInventoryCategory(category)
-        let letter = inventoryCategory.inventoryLetter
-        
-        let currentCount = categoryCounters[letter] ?? 0
-        let nextNumber = currentCount + 1
-        
-        categoryCounters[letter] = nextNumber
-        saveCategoryCounters()
-        
-        return String(format: "%@-%03d", letter, nextNumber)
-    }
-    
-    private func mapCategoryToInventoryCategory(_ category: String) -> InventoryCategory {
-        let lowercased = category.lowercased()
-        
-        if lowercased.contains("shoe") || lowercased.contains("sneaker") || lowercased.contains("footwear") {
-            return .shoes
-        } else if lowercased.contains("shirt") || lowercased.contains("top") {
-            return .tshirts
-        } else if lowercased.contains("jacket") || lowercased.contains("coat") {
-            return .jackets
-        } else if lowercased.contains("jean") || lowercased.contains("denim") {
-            return .jeans
-        } else if lowercased.contains("electronic") {
-            return .electronics
-        } else {
-            return .other
-        }
-    }
-    
-    func addItem(_ item: InventoryItem) -> InventoryItem {
-        var updatedItem = item
-        
-        if updatedItem.inventoryCode.isEmpty {
-            updatedItem.inventoryCode = generateInventoryCode(for: item.category)
-        }
-        
-        items.append(updatedItem)
-        saveItems()
-        
-        firebaseService?.syncInventoryItem(updatedItem) { success in
-            print(success ? "✅ Item synced to Firebase" : "❌ Failed to sync item")
-        }
-        
-        return updatedItem
-    }
-    
-    func updateItem(_ updatedItem: InventoryItem) {
-        if let index = items.firstIndex(where: { $0.id == updatedItem.id }) {
-            items[index] = updatedItem
-            saveItems()
-            
-            firebaseService?.syncInventoryItem(updatedItem) { success in
-                print(success ? "✅ Item updated in Firebase" : "❌ Failed to update item")
-            }
-        }
-    }
-    
-    func deleteItem(_ item: InventoryItem) {
-        items.removeAll { $0.id == item.id }
-        saveItems()
-    }
-    
-    private func saveItems() {
-        do {
-            let data = try JSONEncoder().encode(items)
-            userDefaults.set(data, forKey: itemsKey)
-        } catch {
-            print("❌ Error saving items: \(error)")
-        }
-    }
-    
-    private func loadItems() {
-        guard let data = userDefaults.data(forKey: itemsKey) else {
-            return
-        }
-        
-        do {
-            items = try JSONDecoder().decode([InventoryItem].self, from: data)
-            rebuildCategoryCounters()
-        } catch {
-            print("❌ Error loading items: \(error)")
-            userDefaults.removeObject(forKey: itemsKey)
-            items = []
-        }
-    }
-    
-    private func rebuildCategoryCounters() {
-        categoryCounters.removeAll()
-        
-        for item in items {
-            let category = mapCategoryToInventoryCategory(item.category)
-            let letter = category.inventoryLetter
-            
-            let codeComponents = item.inventoryCode.split(separator: "-")
-            if codeComponents.count == 2,
-               let number = Int(codeComponents[1]) {
-                categoryCounters[letter] = max(categoryCounters[letter] ?? 0, number)
+    private func extractColorway() -> String? {
+        // Look for quoted colorway or color terms
+        if exactProductName.contains("'") {
+            let components = exactProductName.components(separatedBy: "'")
+            if components.count >= 3 {
+                return components[1]
             }
         }
         
-        saveCategoryCounters()
-    }
-    
-    private func saveCategoryCounters() {
-        do {
-            let data = try JSONEncoder().encode(categoryCounters)
-            userDefaults.set(data, forKey: categoryCountersKey)
-        } catch {
-            print("❌ Error saving category counters: \(error)")
-        }
-    }
-    
-    private func loadCategoryCounters() {
-        guard let data = userDefaults.data(forKey: categoryCountersKey) else {
-            return
+        // Look for common color patterns
+        let colorTerms = ["white", "black", "red", "blue", "green", "yellow", "pink", "gray", "grey"]
+        let words = exactProductName.lowercased().components(separatedBy: .whitespaces)
+        let foundColors = words.filter { colorTerms.contains($0) }
+        
+        if !foundColors.isEmpty {
+            return foundColors.joined(separator: "/").capitalized
         }
         
-        do {
-            categoryCounters = try JSONDecoder().decode([String: Int].self, from: data)
-        } catch {
-            categoryCounters = [:]
-        }
-    }
-    
-    var nextItemNumber: Int {
-        (items.map { $0.itemNumber }.max() ?? 0) + 1
-    }
-    
-    var listedItems: Int {
-        items.filter { $0.status == .listed }.count
-    }
-    
-    var soldItems: Int {
-        items.filter { $0.status == .sold }.count
-    }
-    
-    var totalEstimatedValue: Double {
-        items.reduce(0) { $0 + $1.suggestedPrice }
-    }
-    
-    var recentItems: [InventoryItem] {
-        items.sorted { $0.dateAdded > $1.dateAdded }
-    }
-    
-    func getCategoryBreakdown() -> [String: Int] {
-        let categories = Dictionary(grouping: items, by: { $0.category })
-        return categories.mapValues { $0.count }
-    }
-    
-    func getInventoryOverview() -> [(letter: String, category: String, count: Int, items: [InventoryItem])] {
-        var overview: [(letter: String, category: String, count: Int, items: [InventoryItem])] = []
-        
-        for category in InventoryCategory.allCases {
-            let letter = category.inventoryLetter
-            let categoryItems = items.filter { mapCategoryToInventoryCategory($0.category) == category }
-            
-            if categoryItems.count > 0 {
-                overview.append((
-                    letter: letter,
-                    category: category.rawValue,
-                    count: categoryItems.count,
-                    items: categoryItems
-                ))
-            }
-        }
-        
-        return overview.sorted { $0.letter < $1.letter }
-    }
-    
-    func getPackagedItems() -> [InventoryItem] {
-        return items.filter { $0.isPackaged }
-    }
-    
-    func getItemsReadyToList() -> [InventoryItem] {
-        return items.filter { $0.status == .toList }
-    }
-    
-    func exportToCSV() -> String {
-        var csv = "Item Number,Code,Name,Category,Brand,Purchase Price,Suggested Price,Status,Date Added\n"
-        
-        for item in items {
-            let row = [
-                "\(item.itemNumber)",
-                csvEscape(item.inventoryCode),
-                csvEscape(item.name),
-                csvEscape(item.category),
-                csvEscape(item.brand),
-                String(format: "%.2f", item.purchasePrice),
-                String(format: "%.2f", item.suggestedPrice),
-                csvEscape(item.status.rawValue),
-                formatDate(item.dateAdded)
-            ]
-            csv += row.joined(separator: ",") + "\n"
-        }
-        
-        return csv
-    }
-    
-    private func csvEscape(_ text: String) -> String {
-        let escaped = text.replacingOccurrences(of: "\"", with: "\"\"")
-        return "\"\(escaped)\""
-    }
-    
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MM/dd/yyyy"
-        return formatter.string(from: date)
+        return nil
     }
 }

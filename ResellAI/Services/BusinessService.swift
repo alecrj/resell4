@@ -2,7 +2,7 @@
 //  BusinessService.swift
 //  ResellAI
 //
-//  Main Business Service - Updated for AuthService Integration with Fixed OAuth
+//  Enhanced Business Service with Expert-Level AI Analysis
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ import FirebaseFirestore
 import CryptoKit
 import SafariServices
 
-// MARK: - MAIN BUSINESS SERVICE (UPDATED FOR AUTH SERVICE)
+// MARK: - ENHANCED BUSINESS SERVICE WITH EXPERT AI
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -28,17 +28,16 @@ class BusinessService: ObservableObject {
     @Published var queueProgress = "Queue Ready"
     @Published var queueProgressValue: Double = 0.0
     
+    // Enhanced AI service
     private let aiService = AIAnalysisService()
     
-    // ✅ KEEP YOUR WORKING OAUTH SERVICE UNTOUCHED
+    // eBay Services
     let ebayService = EbayService()
-    
-    // ✅ NEW LISTING SERVICE (SEPARATE)
     private let ebayListingService = EbayListingService()
     
     private let googleSheetsService = GoogleSheetsService()
     
-    // Firebase integration (updated to work with AuthService)
+    // Firebase integration
     private weak var firebaseService: FirebaseService?
     private weak var authService: AuthService?
     
@@ -46,7 +45,7 @@ class BusinessService: ObservableObject {
     private var queueTimer: Timer?
     
     init() {
-        print("🚀 ResellAI Business Service initialized with AuthService Integration")
+        print("🚀 ResellAI Business Service initialized with Enhanced AI Analysis")
         loadSavedQueue()
     }
     
@@ -55,49 +54,76 @@ class BusinessService: ObservableObject {
         self.firebaseService = firebaseService
         self.authService = firebaseService?.authService
         authenticateGoogleSheets()
-        
-        // ✅ INITIALIZE YOUR WORKING OAUTH SERVICE (UNCHANGED)
         ebayService.initialize()
     }
     
-    // ✅ OAUTH METHODS - DELEGATE TO YOUR WORKING SERVICE
-    func authenticateEbay(completion: @escaping (Bool) -> Void) {
-        ebayService.authenticate(completion: completion)
-    }
-    
-    // ✅ FIXED - ADD OAUTH CALLBACK HANDLER
-    func handleEbayAuthCallback(url: URL) {
-        print("🔗 BusinessService handling eBay OAuth callback: \(url)")
+    // MARK: - ENHANCED SINGLE ITEM ANALYSIS
+    func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
+        guard !images.isEmpty else {
+            completion(nil)
+            return
+        }
         
-        ebayService.handleAuthCallback(url: url) { [weak self] (success: Bool) in
-            DispatchQueue.main.async {
-                if success {
-                    print("✅ eBay OAuth completed successfully in BusinessService")
-                    
-                    // Force UI refresh by triggering objectWillChange
-                    self?.objectWillChange.send()
-                    
-                    // Verify authentication status
-                    print("🔍 eBay authenticated: \(self?.ebayService.isAuthenticated ?? false)")
-                    print("🔍 eBay user: \(self?.ebayService.connectedUserName ?? "Unknown")")
-                    
-                } else {
-                    print("❌ eBay OAuth failed in BusinessService")
+        // Check AuthService usage limits
+        if let authService = authService, !authService.canAnalyze {
+            print("⚠️ Monthly analysis limit reached")
+            completion(nil)
+            return
+        }
+        
+        print("🧠 Starting enhanced ResellAI analysis with \(images.count) images")
+        
+        // Track usage in AuthService
+        authService?.trackUsage(action: "analysis", metadata: [
+            "source": "single_item",
+            "image_count": "\(images.count)",
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "ai_version": "expert_v2"
+        ])
+        
+        DispatchQueue.main.async {
+            self.isAnalyzing = true
+            self.progressValue = 0.1
+            self.analysisProgress = "Analyzing with expert AI..."
+        }
+        
+        // Use enhanced AI analysis that handles both identification and pricing
+        updateProgress("Expert AI analyzing product...", progress: 0.3)
+        
+        aiService.analyzeItemWithMarketIntelligence(images: images) { [weak self] expertResult in
+            guard let expertResult = expertResult else {
+                DispatchQueue.main.async {
+                    self?.isAnalyzing = false
+                    self?.analysisProgress = "Analysis failed"
                 }
+                completion(nil)
+                return
+            }
+            
+            // Convert expert result to standard format
+            self?.updateProgress("Finalizing analysis...", progress: 0.9)
+            
+            let finalResult = expertResult.toAnalysisResult()
+            
+            DispatchQueue.main.async {
+                self?.isAnalyzing = false
+                self?.analysisProgress = "Analysis complete"
+                self?.progressValue = 1.0
+                
+                print("✅ Enhanced AI analysis complete: \(expertResult.exactProductName)")
+                print("💰 Quick Sale: $\(String(format: "%.2f", expertResult.quickSalePrice))")
+                print("💰 Market Price: $\(String(format: "%.2f", expertResult.marketPrice))")
+                print("💰 Patient Sale: $\(String(format: "%.2f", expertResult.patientSalePrice))")
+                print("🎯 Reasoning: \(expertResult.priceReasoning)")
+                print("🔥 Hype Status: \(expertResult.hypeStatus)")
+                print("💎 Rarity: \(expertResult.rarityLevel)")
+                
+                completion(finalResult)
             }
         }
     }
     
-    var isEbayAuthenticated: Bool {
-        return ebayService.isAuthenticated
-    }
-    
-    var ebayAuthStatus: String {
-        return ebayService.authStatus
-    }
-    
-    // MARK: - QUEUE MANAGEMENT METHODS
-    
+    // MARK: - ENHANCED QUEUE PROCESSING
     func addItemToQueue(photos: [UIImage]) -> UUID {
         let itemId = processingQueue.addItem(photos: photos)
         saveQueue()
@@ -112,19 +138,6 @@ class BusinessService: ObservableObject {
         return itemId
     }
     
-    func addPhotosToQueueItem(itemId: UUID, photos: [UIImage]) {
-        if let index = processingQueue.items.firstIndex(where: { $0.id == itemId }) {
-            let existingPhotos = processingQueue.items[index].uiImages
-            let combinedPhotos = existingPhotos + photos
-            let limitedPhotos = Array(combinedPhotos.prefix(8)) // Max 8 photos
-            
-            processingQueue.items[index].photos = limitedPhotos.compactMap { $0.jpegData(compressionQuality: 0.8) }
-            saveQueue()
-            
-            print("📸 Added \(photos.count) photos to queue item, total: \(limitedPhotos.count)")
-        }
-    }
-    
     func startProcessingQueue() {
         guard !processingQueue.isProcessing else { return }
         guard canProcessQueue() else {
@@ -134,7 +147,7 @@ class BusinessService: ObservableObject {
         
         processingQueue.isProcessing = true
         isProcessingQueue = true
-        queueProgress = "Starting queue processing..."
+        queueProgress = "Starting enhanced queue processing..."
         
         print("🔄 Starting queue processing with \(processingQueue.pendingItems.count) pending items")
         
@@ -205,7 +218,6 @@ class BusinessService: ObservableObject {
     // MARK: - PRIVATE QUEUE PROCESSING METHODS
     
     private func canProcessQueue() -> Bool {
-        // Updated to use AuthService
         guard let authService = authService else { return false }
         return authService.canAnalyze && !processingQueue.rateLimitHit
     }
@@ -226,7 +238,7 @@ class BusinessService: ObservableObject {
         
         if let currentId = processingQueue.currentlyProcessing,
            let currentItem = processingQueue.items.first(where: { $0.id == currentId }) {
-            queueProgress = "Processing Item \(currentItem.position)..."
+            queueProgress = "Expert AI analyzing Item \(currentItem.position)..."
         } else if completedItems == totalItems && totalItems > 0 {
             queueProgress = "Queue complete!"
         }
@@ -250,9 +262,9 @@ class BusinessService: ObservableObject {
         processingQueue.currentlyProcessing = nextItem.id
         processingQueue.updateItemStatus(nextItem.id, status: .processing)
         
-        print("🔍 Processing queue item \(nextItem.position)")
+        print("🧠 Processing queue item \(nextItem.position) with enhanced AI")
         
-        // Analyze the item
+        // Analyze the item using enhanced AI
         analyzeQueueItem(nextItem)
     }
     
@@ -264,78 +276,35 @@ class BusinessService: ObservableObject {
             return
         }
         
-        // Track usage in AuthService - but don't count failures against limit
+        // Track usage in AuthService
         authService?.trackUsage(action: "analysis", metadata: [
             "source": "queue",
             "item_position": "\(item.position)",
-            "photo_count": "\(photos.count)"
+            "photo_count": "\(photos.count)",
+            "ai_version": "expert_v2"
         ])
         
-        // Analyze the item using existing analysis logic
-        aiService.identifyProductPrecisely(images: photos) { [weak self] productResult in
+        // Use enhanced AI analysis
+        aiService.analyzeItemWithMarketIntelligence(images: photos) { [weak self] expertResult in
             guard let self = self else { return }
             
-            guard let productResult = productResult else {
+            guard let expertResult = expertResult else {
                 self.processQueueItemComplete(
                     item.id,
                     result: nil,
-                    error: "Failed to identify product",
+                    error: "Enhanced AI analysis failed",
                     shouldCountAgainstLimit: false
                 )
                 return
             }
             
-            // Search market data
-            let searchQueries = self.buildOptimizedSearchQueries(from: productResult)
+            // Convert to standard AnalysisResult format
+            let finalResult = expertResult.toAnalysisResult()
             
-            self.searchMarketData(queries: searchQueries) { marketData in
-                // Process complete analysis
-                let pricing = self.calculateOptimalPricing(from: marketData, productResult: productResult)
-                let listing = self.generateProfessionalListing(productResult: productResult, pricing: pricing)
-                
-                let finalResult = AnalysisResult(
-                    name: self.buildDetailedProductName(from: productResult),
-                    brand: productResult.brand,
-                    category: productResult.category,
-                    condition: productResult.aiAssessedCondition,
-                    title: listing.optimizedTitle,
-                    description: listing.professionalDescription,
-                    keywords: listing.seoKeywords,
-                    suggestedPrice: pricing.marketPrice,
-                    quickPrice: pricing.quickPrice,
-                    premiumPrice: pricing.premiumPrice,
-                    averagePrice: pricing.averagePrice,
-                    soldListingsCount: marketData.soldComps.count > 0 ? marketData.soldComps.count : nil,
-                    competitorCount: marketData.activeListings.count > 0 ? marketData.activeListings.count : nil,
-                    demandLevel: self.calculateDemandLevel(marketData: marketData),
-                    listingStrategy: "Fixed Price",
-                    sourcingTips: self.generateSourcingTips(productResult: productResult, pricing: pricing),
-                    resalePotential: self.calculateResalePotential(pricing: pricing, marketData: marketData),
-                    priceRange: EbayPriceRange(
-                        low: pricing.quickPrice,
-                        high: pricing.premiumPrice,
-                        average: pricing.averagePrice
-                    ),
-                    recentSales: marketData.soldComps.prefix(5).map { item in
-                        RecentSale(
-                            title: item.title,
-                            price: item.price,
-                            condition: item.condition ?? "Used",
-                            date: item.soldDate ?? Date(),
-                            shipping: item.shipping,
-                            bestOffer: item.bestOfferAccepted ?? false
-                        )
-                    },
-                    exactModel: productResult.modelNumber,
-                    styleCode: productResult.styleCode,
-                    size: productResult.size,
-                    colorway: productResult.colorway,
-                    releaseYear: productResult.releaseYear,
-                    subcategory: productResult.subcategory
-                )
-                
-                self.processQueueItemComplete(item.id, result: finalResult, error: nil)
-            }
+            print("✅ Queue item analysis complete: \(expertResult.exactProductName)")
+            print("💰 Expert pricing: $\(String(format: "%.2f", expertResult.marketPrice))")
+            
+            self.processQueueItemComplete(item.id, result: finalResult, error: nil)
         }
     }
     
@@ -346,7 +315,7 @@ class BusinessService: ObservableObject {
                 self.processingQueue.updateItemStatus(itemId, status: .completed, result: result)
                 print("✅ Queue item \(itemId) completed successfully")
             } else {
-                // Failure - mark as failed but don't count against limit unless it was a real API call
+                // Failure
                 self.processingQueue.updateItemStatus(itemId, status: .failed, error: error)
                 
                 if let index = self.processingQueue.items.firstIndex(where: { $0.id == itemId }) {
@@ -401,7 +370,7 @@ class BusinessService: ObservableObject {
         let completedCount = processingQueue.completedItems.count
         let failedCount = processingQueue.failedItems.count
         
-        queueProgress = "Queue complete: \(completedCount) analyzed, \(failedCount) failed"
+        queueProgress = "Enhanced AI complete: \(completedCount) analyzed, \(failedCount) failed"
         queueProgressValue = 1.0
         
         print("✅ Queue processing finished: \(completedCount) completed, \(failedCount) failed")
@@ -415,9 +384,7 @@ class BusinessService: ObservableObject {
     }
     
     private func scheduleCompletionNotification(completedCount: Int) {
-        // This would schedule a local notification when queue is complete
-        // Implementation depends on your notification setup
-        print("📱 Would send notification: \(completedCount) items analyzed and ready for review")
+        print("📱 Would send notification: \(completedCount) items analyzed with enhanced AI")
     }
     
     // MARK: - QUEUE PERSISTENCE
@@ -451,533 +418,37 @@ class BusinessService: ObservableObject {
         }
     }
     
-    // MARK: - ANALYSIS METHODS (UPDATED TO USE AUTH SERVICE)
+    // MARK: - EBAY INTEGRATION (UNCHANGED)
     
-    func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
-        guard !images.isEmpty else {
-            completion(nil)
-            return
-        }
-        
-        // Check AuthService usage limits
-        if let authService = authService, !authService.canAnalyze {
-            print("⚠️ Monthly analysis limit reached")
-            completion(nil)
-            return
-        }
-        
-        print("🔍 Starting ResellAI analysis with \(images.count) images")
-        
-        // Track usage in AuthService
-        authService?.trackUsage(action: "analysis", metadata: [
-            "source": "single_item",
-            "image_count": "\(images.count)",
-            "timestamp": ISO8601DateFormatter().string(from: Date())
-        ])
-        
-        DispatchQueue.main.async {
-            self.isAnalyzing = true
-            self.progressValue = 0.1
-            self.analysisProgress = "Analyzing product..."
-        }
-        
-        // Step 1: AI Product Identification
-        updateProgress("Identifying product with AI...", progress: 0.2)
-        
-        aiService.identifyProductPrecisely(images: images) { [weak self] productResult in
-            guard let productResult = productResult else {
-                DispatchQueue.main.async {
-                    self?.isAnalyzing = false
-                    completion(nil)
-                }
-                return
-            }
-            
-            print("✅ Product identified: \(productResult.exactProduct)")
-            print("🏷️ Brand: \(productResult.brand)")
-            
-            // Step 2: Search eBay for real sold comps
-            self?.updateProgress("Finding market data...", progress: 0.4)
-            
-            let searchQueries = self?.buildOptimizedSearchQueries(from: productResult) ?? [productResult.exactProduct]
-            
-            self?.searchMarketData(queries: searchQueries) { [weak self] marketData in
-                self?.updateProgress("Calculating optimal pricing...", progress: 0.7)
-                self?.processCompleteAnalysis(productResult: productResult, marketData: marketData, completion: completion)
-            }
-        }
+    func authenticateEbay(completion: @escaping (Bool) -> Void) {
+        ebayService.authenticate(completion: completion)
     }
     
-    private func searchMarketData(queries: [String], completion: @escaping (MarketData) -> Void) {
-        guard !queries.isEmpty else {
-            completion(MarketData(activeListings: [], soldComps: []))
-            return
-        }
+    func handleEbayAuthCallback(url: URL) {
+        print("🔗 BusinessService handling eBay OAuth callback: \(url)")
         
-        let query = queries[0]
-        print("🔍 Searching market data for: \(query)")
-        
-        var activeListings: [EbayListing] = []
-        var soldComps: [EbaySoldItem] = []
-        
-        let group = DispatchGroup()
-        
-        // Search active listings
-        group.enter()
-        searchActiveListings(query: query) { listings in
-            activeListings = listings
-            group.leave()
-        }
-        
-        // Search sold comps via RapidAPI
-        group.enter()
-        searchSoldComps(query: query) { comps in
-            soldComps = comps
-            group.leave()
-        }
-        
-        group.notify(queue: .main) {
-            completion(MarketData(activeListings: activeListings, soldComps: soldComps))
-        }
-    }
-    
-    private func searchActiveListings(query: String, completion: @escaping ([EbayListing]) -> Void) {
-        let cleanQuery = query.replacingOccurrences(of: " ", with: "%20")
-        guard let url = URL(string: "https://svcs.ebay.com/services/search/FindingService/v1?OPERATION-NAME=findItemsByKeywords&SERVICE-VERSION=1.0.0&SECURITY-APPNAME=\(Configuration.ebayAPIKey)&RESPONSE-DATA-FORMAT=JSON&keywords=\(cleanQuery)&paginationInput.entriesPerPage=20") else {
-            completion([])
-            return
-        }
-        
-        URLSession.shared.dataTask(with: url) { data, response, error in
-            guard let data = data else {
-                completion([])
-                return
-            }
-            
-            let listings = self.parseActiveListings(data: data)
-            print("✅ Found \(listings.count) active eBay listings")
-            completion(listings)
-        }.resume()
-    }
-    
-    private func searchSoldComps(query: String, completion: @escaping ([EbaySoldItem]) -> Void) {
-        guard !Configuration.rapidAPIKey.isEmpty else {
-            print("⚠️ RapidAPI key not configured")
-            completion([])
-            return
-        }
-        
-        // Fixed RapidAPI endpoint based on screenshot
-        guard let url = URL(string: "https://ebay-average-selling-price.p.rapidapi.com/findCompletedItems") else {
-            completion([])
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(Configuration.rapidAPIKey, forHTTPHeaderField: "X-RapidAPI-Key")
-        request.setValue("ebay-average-selling-price.p.rapidapi.com", forHTTPHeaderField: "X-RapidAPI-Host")
-        
-        let requestBody: [String: Any] = [
-            "keywords": query,
-            "max_search_results": "50",
-            "category_id": "15709", // Shoes category
-            "remove_outliers": "true",
-            "site_id": "0"
-        ]
-        
-        do {
-            request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
-        } catch {
-            print("❌ Error creating RapidAPI request: \(error)")
-            completion([])
-            return
-        }
-        
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error = error {
-                print("❌ RapidAPI network error: \(error)")
-                completion([])
-                return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                print("🔍 RapidAPI response code: \(httpResponse.statusCode)")
-                
-                if httpResponse.statusCode == 404 {
-                    print("❌ RapidAPI endpoint not found - check endpoint URL")
-                } else if httpResponse.statusCode != 200 {
-                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
-                        print("❌ RapidAPI error (\(httpResponse.statusCode)): \(errorString)")
-                    }
+        ebayService.handleAuthCallback(url: url) { [weak self] (success: Bool) in
+            DispatchQueue.main.async {
+                if success {
+                    print("✅ eBay OAuth completed successfully in BusinessService")
+                    self?.objectWillChange.send()
+                    print("🔍 eBay authenticated: \(self?.ebayService.isAuthenticated ?? false)")
+                    print("🔍 eBay user: \(self?.ebayService.connectedUserName ?? "Unknown")")
+                } else {
+                    print("❌ eBay OAuth failed in BusinessService")
                 }
             }
-            
-            guard let data = data else {
-                completion([])
-                return
-            }
-            
-            let soldItems = self.parseSoldComps(data: data)
-            print("✅ Found \(soldItems.count) sold comps from RapidAPI")
-            completion(soldItems)
-            
-        }.resume()
-    }
-    
-    private func parseActiveListings(data: Data) -> [EbayListing] {
-        var listings: [EbayListing] = []
-        
-        do {
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let findItemsResponse = json["findItemsByKeywordsResponse"] as? [Any],
-               let responseDict = findItemsResponse.first as? [String: Any],
-               let searchResult = responseDict["searchResult"] as? [Any],
-               let searchResultDict = searchResult.first as? [String: Any],
-               let items = searchResultDict["item"] as? [Any] {
-                
-                for itemData in items {
-                    guard let item = itemData as? [String: Any] else { continue }
-                    
-                    if let titleArray = item["title"] as? [String],
-                       let title = titleArray.first,
-                       let sellingStatus = item["sellingStatus"] as? [Any],
-                       let statusDict = sellingStatus.first as? [String: Any],
-                       let currentPrice = statusDict["currentPrice"] as? [Any],
-                       let priceDict = currentPrice.first as? [String: Any],
-                       let priceValue = priceDict["__value__"] as? String,
-                       let price = Double(priceValue) {
-                        
-                        let listing = EbayListing(title: title, price: price, shipping: nil)
-                        listings.append(listing)
-                    }
-                }
-            }
-        } catch {
-            print("❌ Error parsing active listings: \(error)")
-        }
-        
-        return listings
-    }
-    
-    private func parseSoldComps(data: Data) -> [EbaySoldItem] {
-        var soldItems: [EbaySoldItem] = []
-        
-        do {
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                // Parse RapidAPI response format
-                if let results = json["results"] as? [[String: Any]] {
-                    for result in results {
-                        if let title = result["title"] as? String,
-                           let price = result["price"] as? Double {
-                            
-                            let condition = result["condition"] as? String ?? "Used"
-                            let soldDate = Date() // RapidAPI might not provide exact date
-                            
-                            let soldItem = EbaySoldItem(
-                                title: title,
-                                price: price,
-                                condition: condition,
-                                soldDate: soldDate,
-                                shipping: result["shipping"] as? Double,
-                                bestOfferAccepted: false
-                            )
-                            soldItems.append(soldItem)
-                        }
-                    }
-                }
-            }
-        } catch {
-            print("❌ Error parsing sold comps: \(error)")
-        }
-        
-        return soldItems
-    }
-    
-    private func processCompleteAnalysis(productResult: ProductIdentificationResult, marketData: MarketData, completion: @escaping (AnalysisResult?) -> Void) {
-        
-        updateProgress("Finalizing analysis...", progress: 0.9)
-        
-        // Calculate pricing based on available data
-        let pricing = calculateOptimalPricing(from: marketData, productResult: productResult)
-        
-        // Generate professional listing
-        let listing = generateProfessionalListing(productResult: productResult, pricing: pricing)
-        
-        updateProgress("Complete!", progress: 1.0)
-        
-        let finalResult = AnalysisResult(
-            name: buildDetailedProductName(from: productResult),
-            brand: productResult.brand,
-            category: productResult.category,
-            condition: productResult.aiAssessedCondition,
-            title: listing.optimizedTitle,
-            description: listing.professionalDescription,
-            keywords: listing.seoKeywords,
-            suggestedPrice: pricing.marketPrice,
-            quickPrice: pricing.quickPrice,
-            premiumPrice: pricing.premiumPrice,
-            averagePrice: pricing.averagePrice,
-            marketConfidence: nil,
-            soldListingsCount: marketData.soldComps.count > 0 ? marketData.soldComps.count : nil,
-            competitorCount: marketData.activeListings.count > 0 ? marketData.activeListings.count : nil,
-            demandLevel: calculateDemandLevel(marketData: marketData),
-            listingStrategy: "Fixed Price",
-            sourcingTips: generateSourcingTips(productResult: productResult, pricing: pricing),
-            aiConfidence: nil,
-            resalePotential: calculateResalePotential(pricing: pricing, marketData: marketData),
-            priceRange: EbayPriceRange(
-                low: pricing.quickPrice,
-                high: pricing.premiumPrice,
-                average: pricing.averagePrice
-            ),
-            recentSales: marketData.soldComps.prefix(5).map { item in
-                RecentSale(
-                    title: item.title,
-                    price: item.price,
-                    condition: item.condition ?? "Used",
-                    date: item.soldDate ?? Date(),
-                    shipping: item.shipping,
-                    bestOffer: item.bestOfferAccepted ?? false
-                )
-            },
-            exactModel: productResult.modelNumber,
-            styleCode: productResult.styleCode,
-            size: productResult.size,
-            colorway: productResult.colorway,
-            releaseYear: productResult.releaseYear,
-            subcategory: productResult.subcategory
-        )
-        
-        DispatchQueue.main.async {
-            self.isAnalyzing = false
-            self.analysisProgress = "Analysis complete"
-            
-            print("✅ ResellAI analysis complete: \(finalResult.name)")
-            print("💰 Suggested Price: $\(String(format: "%.2f", pricing.marketPrice))")
-            print("🎯 Based on \(marketData.activeListings.count) active + \(marketData.soldComps.count) sold listings")
-            
-            completion(finalResult)
         }
     }
     
-    private func buildDetailedProductName(from productResult: ProductIdentificationResult) -> String {
-        var name = productResult.brand.isEmpty ? "" : "\(productResult.brand) "
-        
-        // Add the specific product name
-        name += productResult.exactProduct
-        
-        // Add colorway if available and not generic
-        if let colorway = productResult.colorway,
-           !colorway.isEmpty &&
-           !colorway.lowercased().contains("not visible") &&
-           !colorway.lowercased().contains("unknown") &&
-           !productResult.exactProduct.lowercased().contains(colorway.lowercased()) {
-            name += " \(colorway)"
-        }
-        
-        // Add size if available
-        if let size = productResult.size,
-           !size.isEmpty &&
-           !size.lowercased().contains("not visible") &&
-           !size.lowercased().contains("unknown") {
-            name += " Size \(size)"
-        }
-        
-        return name.trimmingCharacters(in: .whitespaces)
+    var isEbayAuthenticated: Bool {
+        return ebayService.isAuthenticated
     }
     
-    private func calculateOptimalPricing(from marketData: MarketData, productResult: ProductIdentificationResult) -> OptimalPricing {
-        let activeListings = marketData.activeListings
-        let soldComps = marketData.soldComps
-        
-        var basePrice: Double = 40.0
-        
-        // Use sold comps if available (most accurate)
-        if !soldComps.isEmpty {
-            let prices = soldComps.map { $0.price }.sorted()
-            let median = prices.count % 2 == 0
-                ? (prices[prices.count/2 - 1] + prices[prices.count/2]) / 2
-                : prices[prices.count/2]
-            basePrice = median
-        }
-        // Fall back to active listings
-        else if !activeListings.isEmpty {
-            let prices = activeListings.map { $0.price }.sorted()
-            let median = prices.count % 2 == 0
-                ? (prices[prices.count/2 - 1] + prices[prices.count/2]) / 2
-                : prices[prices.count/2]
-            basePrice = median * 0.85 // Adjust down from asking prices
-        }
-        // Brand-based fallback
-        else {
-            basePrice = getBrandBasedPrice(brand: productResult.brand, category: productResult.category)
-        }
-        
-        return OptimalPricing(
-            quickPrice: basePrice * 0.8,
-            marketPrice: basePrice,
-            premiumPrice: basePrice * 1.25,
-            averagePrice: basePrice
-        )
+    var ebayAuthStatus: String {
+        return ebayService.authStatus
     }
     
-    private func getBrandBasedPrice(brand: String, category: String) -> Double {
-        let brandLower = brand.lowercased()
-        let categoryLower = category.lowercased()
-        
-        var basePrice: Double = 30.0
-        
-        // Brand multipliers
-        if ["nike", "jordan", "adidas", "yeezy"].contains(brandLower) {
-            basePrice = categoryLower.contains("sneaker") ? 80.0 : 50.0
-        } else if ["apple", "samsung", "sony"].contains(brandLower) {
-            basePrice = 200.0
-        } else if ["levi", "gap", "american eagle"].contains(brandLower) {
-            basePrice = 25.0
-        }
-        
-        return basePrice
-    }
-    
-    private func calculateDemandLevel(marketData: MarketData) -> String? {
-        let totalListings = marketData.activeListings.count + marketData.soldComps.count
-        
-        if totalListings >= 30 {
-            return "High"
-        } else if totalListings >= 10 {
-            return "Medium"
-        } else if totalListings >= 3 {
-            return "Low"
-        } else {
-            return nil // Don't show demand level if insufficient data
-        }
-    }
-    
-    private func calculateResalePotential(pricing: OptimalPricing, marketData: MarketData) -> Int {
-        var score = 5
-        
-        if pricing.marketPrice > 100 {
-            score += 3
-        } else if pricing.marketPrice > 50 {
-            score += 2
-        }
-        
-        if marketData.soldComps.count > 5 {
-            score += 2
-        } else if marketData.activeListings.count > 10 {
-            score += 1
-        }
-        
-        return min(score, 10)
-    }
-    
-    private func generateSourcingTips(productResult: ProductIdentificationResult, pricing: OptimalPricing) -> [String] {
-        var tips: [String] = []
-        
-        let maxBuyPrice = pricing.quickPrice * 0.6
-        tips.append("Max buy price: $\(String(format: "%.2f", maxBuyPrice)) for 40%+ margin")
-        
-        let brand = productResult.brand.lowercased()
-        if ["nike", "jordan", "adidas"].contains(brand) {
-            tips.append("Check for authenticity - popular items have fakes")
-            tips.append("Original box adds 10-15% value")
-        }
-        
-        return tips
-    }
-    
-    private func generateProfessionalListing(productResult: ProductIdentificationResult, pricing: OptimalPricing) -> ProfessionalListing {
-        let title = generateOptimizedTitle(productResult: productResult)
-        let description = generateDescription(productResult: productResult, pricing: pricing)
-        let keywords = generateKeywords(productResult: productResult)
-        
-        return ProfessionalListing(
-            optimizedTitle: title,
-            professionalDescription: description,
-            seoKeywords: keywords,
-            suggestedCategory: "15709", // Default to shoes
-            shippingStrategy: pricing.marketPrice > 50 ? "Free shipping" : "$8.50 shipping",
-            returnPolicy: "30-day returns",
-            listingEnhancements: []
-        )
-    }
-    
-    private func generateOptimizedTitle(productResult: ProductIdentificationResult) -> String {
-        return buildDetailedProductName(from: productResult)
-    }
-    
-    private func generateDescription(productResult: ProductIdentificationResult, pricing: OptimalPricing) -> String {
-        var desc = "🔥 \(buildDetailedProductName(from: productResult))\n\n"
-        desc += "📋 ITEM DETAILS:\n"
-        
-        if !productResult.brand.isEmpty {
-            desc += "• Brand: \(productResult.brand)\n"
-        }
-        
-        if let size = productResult.size, !size.isEmpty && !size.contains("not visible") {
-            desc += "• Size: \(size)\n"
-        }
-        
-        desc += "• Condition: \(productResult.aiAssessedCondition)\n\n"
-        
-        desc += "✅ FAST & SECURE:\n"
-        desc += "• Ships within 1 business day\n"
-        desc += "• 30-day returns accepted\n"
-        desc += "• Carefully packaged\n"
-        desc += "• Authentic guaranteed\n"
-        
-        return desc
-    }
-    
-    private func generateKeywords(productResult: ProductIdentificationResult) -> [String] {
-        var keywords: Set<String> = []
-        
-        keywords.insert(productResult.exactProduct.lowercased())
-        if !productResult.brand.isEmpty {
-            keywords.insert(productResult.brand.lowercased())
-        }
-        if let colorway = productResult.colorway, !colorway.isEmpty && !colorway.contains("not visible") {
-            keywords.insert(colorway.lowercased())
-        }
-        
-        return Array(keywords.prefix(6))
-    }
-    
-    private func updateProgress(_ message: String, progress: Double) {
-        DispatchQueue.main.async {
-            self.analysisProgress = message
-            self.progressValue = progress
-        }
-    }
-    
-    private func buildOptimizedSearchQueries(from productResult: ProductIdentificationResult) -> [String] {
-        var queries: [String] = []
-        
-        // Primary query with all details
-        var primaryQuery = productResult.brand.isEmpty ? "" : "\(productResult.brand) "
-        primaryQuery += productResult.exactProduct
-        
-        if let colorway = productResult.colorway, !colorway.isEmpty && !colorway.contains("not visible") {
-            primaryQuery += " \(colorway)"
-        }
-        
-        queries.append(primaryQuery.trimmingCharacters(in: .whitespaces))
-        
-        // Fallback query without colorway
-        var fallbackQuery = productResult.brand.isEmpty ? "" : "\(productResult.brand) "
-        fallbackQuery += productResult.exactProduct
-        
-        let fallback = fallbackQuery.trimmingCharacters(in: .whitespaces)
-        if fallback != queries.first {
-            queries.append(fallback)
-        }
-        
-        return queries
-    }
-    
-    // ✅ REAL EBAY LISTING CREATION - USES NEW LISTING SERVICE
     func createEbayListing(from analysis: AnalysisResult, images: [UIImage], completion: @escaping (Bool, String?) -> Void) {
         guard let authService = authService else {
             completion(false, "Auth service not initialized")
@@ -989,7 +460,6 @@ class BusinessService: ObservableObject {
             return
         }
         
-        // ✅ CHECK IF WE HAVE VALID OAUTH TOKEN FROM YOUR WORKING SERVICE
         guard ebayService.isAuthenticated else {
             completion(false, "Please connect your eBay account first")
             return
@@ -1001,19 +471,28 @@ class BusinessService: ObservableObject {
         }
         
         print("📤 Creating eBay listing for: \(analysis.name)")
-        print("• Using OAuth token from working service: \(accessToken.prefix(10))...")
+        print("• Using enhanced AI analysis result")
         
-        // ✅ USE NEW LISTING SERVICE WITH TOKEN FROM OAUTH SERVICE
         ebayListingService.createListing(analysis: analysis, images: images, accessToken: accessToken) { [weak self] success, errorMessage in
             if success {
                 authService.trackUsage(action: "listing_created", metadata: [
                     "item_name": analysis.name,
                     "price": String(format: "%.2f", analysis.suggestedPrice),
-                    "category": analysis.category
+                    "category": analysis.category,
+                    "ai_version": "expert_v2"
                 ])
                 print("✅ eBay listing created successfully")
             }
             completion(success, errorMessage)
+        }
+    }
+    
+    // MARK: - HELPER METHODS
+    
+    private func updateProgress(_ message: String, progress: Double) {
+        DispatchQueue.main.async {
+            self.analysisProgress = message
+            self.progressValue = progress
         }
     }
     
@@ -1040,62 +519,4 @@ class BusinessService: ObservableObject {
 extension Notification.Name {
     static let rateLimitReached = Notification.Name("rateLimitReached")
     static let queueProcessingComplete = Notification.Name("queueProcessingComplete")
-}
-
-// MARK: - SUPPORTING MODELS
-struct MarketData {
-    let activeListings: [EbayListing]
-    let soldComps: [EbaySoldItem]
-}
-
-struct EbayListing {
-    let title: String
-    let price: Double
-    let shipping: Double?
-}
-
-struct OptimalPricing {
-    let quickPrice: Double
-    let marketPrice: Double
-    let premiumPrice: Double
-    let averagePrice: Double
-}
-
-struct ProfessionalListing {
-    let optimizedTitle: String
-    let professionalDescription: String
-    let seoKeywords: [String]
-    let suggestedCategory: String
-    let shippingStrategy: String
-    let returnPolicy: String
-    let listingEnhancements: [String]
-}
-
-struct ProductIdentificationResult {
-    let exactProduct: String
-    let brand: String
-    let category: String
-    let subcategory: String?
-    let modelNumber: String?
-    let styleCode: String?
-    let size: String?
-    let colorway: String?
-    let releaseYear: String?
-    let title: String
-    let description: String
-    let keywords: [String]
-    let aiAssessedCondition: String
-    let confidence: Double
-    let authenticityRisk: String
-    let estimatedAge: String?
-    let completeness: String
-}
-
-struct EbaySoldItem {
-    let title: String
-    let price: Double
-    let condition: String?
-    let soldDate: Date?
-    let shipping: Double?
-    let bestOfferAccepted: Bool?
 }

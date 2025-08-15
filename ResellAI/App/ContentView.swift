@@ -2,14 +2,14 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Main App Coordinator with Fixed OAuth Callback & UI Updates
+//  Enhanced Main App with Expert AI Integration
 //
 
 import SwiftUI
 import PhotosUI
 import AVFoundation
 
-// MARK: - MAIN CONTENT VIEW (FIXED OAUTH CALLBACK & UI UPDATES)
+// MARK: - ENHANCED MAIN CONTENT VIEW
 struct ContentView: View {
     @StateObject private var firebaseService = FirebaseService()
     @StateObject private var inventoryManager = InventoryManager()
@@ -30,8 +30,8 @@ struct ContentView: View {
         Group {
             if authService.isAuthenticated {
                 if businessService.ebayService.isAuthenticated {
-                    // ✅ SHOW REAL CAMERA APP
-                    MainCameraView()
+                    // ✅ SHOW ENHANCED CAMERA APP WITH EXPERT AI
+                    EnhancedMainCameraView()
                         .environmentObject(authService)
                         .environmentObject(firebaseService)
                         .environmentObject(inventoryManager)
@@ -51,7 +51,7 @@ struct ContentView: View {
         }
         .preferredColorScheme(.light)
         .onAppear {
-            initializeServices()
+            initializeEnhancedServices()
         }
         .onOpenURL { url in
             handleIncomingURL(url)
@@ -62,18 +62,18 @@ struct ContentView: View {
         .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
             print("🔄 eBay auth state changed in ContentView: \(isAuthenticated)")
             if isAuthenticated {
-                print("✅ eBay connected - showing main camera view")
+                print("✅ eBay connected - showing enhanced camera view")
                 businessService.objectWillChange.send()
             }
         }
     }
     
-    private func initializeServices() {
-        print("🚀 Initializing ResellAI services...")
+    private func initializeEnhancedServices() {
+        print("🚀 Initializing Enhanced ResellAI services...")
         Configuration.validateConfiguration()
         businessService.initialize(with: firebaseService)
         inventoryManager.initialize(with: firebaseService)
-        print("✅ Services initialized")
+        print("✅ Enhanced services initialized")
     }
     
     private func handleIncomingURL(_ url: URL) {
@@ -94,8 +94,8 @@ struct ContentView: View {
     }
 }
 
-// MARK: - MAIN CAMERA VIEW (CLEANED UP)
-struct MainCameraView: View {
+// MARK: - ENHANCED MAIN CAMERA VIEW WITH EXPERT AI
+struct EnhancedMainCameraView: View {
     @EnvironmentObject var businessService: BusinessService
     @EnvironmentObject var authService: AuthService
     
@@ -112,50 +112,8 @@ struct MainCameraView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with status
-            HStack {
-                Text("ResellAI")
-                    .font(DesignSystem.titleFont)
-                    .foregroundColor(DesignSystem.primary)
-                
-                Spacer()
-                
-                // eBay status indicator
-                Button(action: { showingEbayStatus = true }) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(businessService.ebayService.isAuthenticated ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
-                        
-                        Text(businessService.ebayService.isAuthenticated ? "eBay Connected" : "eBay Not Connected")
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.secondary)
-                    }
-                }
-                
-                // Usage indicator
-                if let user = authService.currentUser {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(authService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.secondary)
-                        
-                        if !authService.canAnalyze {
-                            Text("Limit reached")
-                                .font(.caption2)
-                                .foregroundColor(.red)
-                        }
-                    }
-                }
-                
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(DesignSystem.secondary)
-                }
-            }
-            .padding(.horizontal, DesignSystem.spacing3)
-            .padding(.vertical, DesignSystem.spacing2)
+            // Enhanced header with expert AI branding
+            enhancedHeader
             
             // Main content area
             if capturedImages.isEmpty && !showingProcessing && analysisResult == nil {
@@ -174,10 +132,10 @@ struct MainCameraView: View {
                     onLibrary: { showingPhotoLibrary = true }
                 )
             } else if showingProcessing {
-                // Processing state
+                // Enhanced processing state
                 ProcessingView()
             } else if let result = analysisResult {
-                // Results state
+                // Enhanced results state
                 ReviewListingView(
                     result: result,
                     images: capturedImages,
@@ -185,7 +143,7 @@ struct MainCameraView: View {
                     onPostListing: postToEbay
                 )
             } else {
-                // Photo preview state
+                // Enhanced photo preview state
                 PhotoPreviewView(
                     images: capturedImages,
                     onAnalyze: analyzePhotos,
@@ -238,6 +196,83 @@ struct MainCameraView: View {
         }
     }
     
+    // MARK: - Enhanced Header
+    private var enhancedHeader: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Text("ResellAI")
+                        .font(DesignSystem.titleFont)
+                        .foregroundColor(DesignSystem.primary)
+                    
+                    // Expert AI badge
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 12))
+                        Text("Expert AI")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
+                    .foregroundColor(DesignSystem.neonGreen)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(DesignSystem.neonGreen.opacity(0.1))
+                    .cornerRadius(12)
+                }
+                
+                Text("Photo to eBay listing in 30 seconds")
+                    .font(.caption)
+                    .foregroundColor(DesignSystem.secondary)
+            }
+            
+            Spacer()
+            
+            HStack(spacing: 16) {
+                // eBay status indicator
+                Button(action: { showingEbayStatus = true }) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(businessService.ebayService.isAuthenticated ? Color.green : Color.red)
+                            .frame(width: 8, height: 8)
+                        
+                        Text(businessService.ebayService.isAuthenticated ? "eBay ✓" : "eBay")
+                            .font(DesignSystem.captionFont)
+                            .foregroundColor(DesignSystem.secondary)
+                    }
+                }
+                
+                // Enhanced usage indicator
+                if let user = authService.currentUser {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(authService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
+                            .font(DesignSystem.captionFont)
+                            .foregroundColor(DesignSystem.secondary)
+                        
+                        if !authService.canAnalyze {
+                            Text("Upgrade")
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                        } else {
+                            Text("analyses")
+                                .font(.caption2)
+                                .foregroundColor(DesignSystem.secondary)
+                        }
+                    }
+                }
+                
+                Button(action: { showingSettings = true }) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(DesignSystem.secondary)
+                }
+            }
+        }
+        .padding(.horizontal, DesignSystem.spacing3)
+        .padding(.vertical, DesignSystem.spacing2)
+    }
+    
+    // MARK: - Helper Methods
+    
     private func checkCameraPermission(completion: @escaping (Bool) -> Void) {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
@@ -257,19 +292,24 @@ struct MainCameraView: View {
     
     private func analyzePhotos() {
         guard authService.canAnalyze else {
-            errorMessage = "Monthly analysis limit reached. Please upgrade your plan."
+            errorMessage = "Monthly analysis limit reached. Upgrade for unlimited expert analysis."
             showingError = true
             return
         }
         
         showingProcessing = true
+        
+        // Track that we're using expert AI
+        print("🧠 Starting Expert AI Analysis with \(capturedImages.count) images")
+        
         businessService.analyzeItem(capturedImages) { result in
             DispatchQueue.main.async {
                 showingProcessing = false
                 if let result = result {
                     analysisResult = result
+                    print("✅ Expert AI analysis complete: \(result.name)")
                 } else {
-                    errorMessage = "Failed to analyze item. Please try again."
+                    errorMessage = "Expert AI analysis failed. Please try again with clearer photos."
                     showingError = true
                 }
             }
@@ -285,17 +325,20 @@ struct MainCameraView: View {
     private func postToEbay() {
         guard let result = analysisResult else { return }
         guard authService.canCreateListing else {
-            errorMessage = "Monthly listing limit reached. Please upgrade your plan."
+            errorMessage = "Monthly listing limit reached. Upgrade for unlimited listings."
             showingError = true
             return
         }
         
+        print("📤 Creating eBay listing from Expert AI analysis")
+        
         businessService.createEbayListing(from: result, images: capturedImages) { success, error in
             DispatchQueue.main.async {
                 if success {
+                    print("🎉 Expert AI to eBay listing success!")
                     resetToCamera()
                 } else {
-                    errorMessage = error ?? "Failed to create listing"
+                    errorMessage = error ?? "Failed to create eBay listing"
                     showingError = true
                 }
             }

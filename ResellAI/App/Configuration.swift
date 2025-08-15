@@ -2,12 +2,12 @@
 //  Configuration.swift
 //  ResellAI
 //
-//  Fixed Configuration with Working eBay OAuth Settings
+//  Enhanced Configuration with Expert AI Settings
 //
 
 import Foundation
 
-// MARK: - Fixed Configuration with Working eBay OAuth
+// MARK: - Enhanced Configuration with Expert AI
 struct Configuration {
     
     // MARK: - API Keys from Environment Variables
@@ -21,13 +21,13 @@ struct Configuration {
     
     static let googleCloudAPIKey = ProcessInfo.processInfo.environment["GOOGLE_CLOUD_API_KEY"] ?? ""
     
-    // ✅ WORKING EBAY CREDENTIALS - KEEP THESE EXACT VALUES
+    // ✅ KEEP YOUR WORKING EBAY CREDENTIALS (WITH ENV FALLBACKS)
     static let ebayAPIKey = ProcessInfo.processInfo.environment["EBAY_API_KEY"] ?? "AlecRodr-resell-PRD-d0bc91504-be3e553a"
     static let ebayClientSecret = ProcessInfo.processInfo.environment["EBAY_CLIENT_SECRET"] ?? "PRD-0bc91504af12-57f0-49aa-8bb7-763a"
     static let ebayDevId = ProcessInfo.processInfo.environment["EBAY_DEV_ID"] ?? "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
     static let ebayEnvironment = "PRODUCTION"
     
-    // ✅ WORKING OAUTH REDIRECT URIS - THESE WERE WORKING
+    // ✅ KEEP YOUR WORKING OAUTH REDIRECT URIS
     static let ebayRedirectURI = ProcessInfo.processInfo.environment["EBAY_REDIRECT_URI"] ?? "https://resellaiapp.com/ebay-callback.html"
     static let ebayAppScheme = "resellai://auth/ebay"
     static let ebayRuName = ProcessInfo.processInfo.environment["EBAY_RU_NAME"] ?? "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
@@ -66,6 +66,11 @@ struct Configuration {
     static let defaultEbayFeeRate = 0.1325
     static let defaultPayPalFeeRate = 0.0349
     
+    // MARK: - Enhanced AI Configuration
+    static let expertAIModel = "gpt-4o-2024-11-20" // Latest GPT-4o for expert analysis
+    static let expertAIMaxTokens = 2000 // Increased for detailed analysis
+    static let expertAITemperature = 0.1 // Low temperature for consistent pricing
+    
     // MARK: - Business Rules
     static let minimumROIThreshold = 50.0
     static let preferredROIThreshold = 100.0
@@ -93,7 +98,7 @@ struct Configuration {
     static let openAIMaxTokens = 4000
     static let rapidAPICallsPerMinute = 100
     
-    // MARK: - Configuration Validation
+    // MARK: - Configuration Validation (ENHANCED)
     static var isFullyConfigured: Bool {
         return !openAIKey.isEmpty &&
                !ebayAPIKey.isEmpty &&
@@ -106,9 +111,13 @@ struct Configuration {
                !ebayDevId.isEmpty
     }
     
+    static var isExpertAIReady: Bool {
+        return !openAIKey.isEmpty && openAIKey.count > 20
+    }
+    
     static var configurationStatus: String {
         if isFullyConfigured {
-            return "All systems ready"
+            return "Expert AI Ready - All systems operational"
         } else {
             var missing: [String] = []
             if openAIKey.isEmpty { missing.append("OpenAI") }
@@ -119,10 +128,17 @@ struct Configuration {
         }
     }
     
-    // MARK: - Development Helpers
+    // MARK: - Enhanced Development Helpers
     static func validateConfiguration() {
-        print("🔧 ResellAI Configuration Status:")
-        print("✅ OpenAI: \(openAIKey.isEmpty ? "❌ Missing" : "✅ Configured")")
+        print("🔧 ResellAI Enhanced Configuration Status:")
+        print("✅ OpenAI (Expert AI): \(openAIKey.isEmpty ? "❌ Missing" : "✅ Configured")")
+        
+        if isExpertAIReady {
+            print("🧠 Expert AI Model: \(expertAIModel)")
+            print("🎯 AI Max Tokens: \(expertAIMaxTokens)")
+            print("🌡️ AI Temperature: \(expertAITemperature)")
+        }
+        
         print("✅ eBay API Key: \(ebayAPIKey.isEmpty ? "❌ Missing" : "✅ \(ebayAPIKey)")")
         print("✅ eBay Client Secret: \(ebayClientSecret.isEmpty ? "❌ Missing" : "✅ Configured")")
         print("✅ eBay Dev ID: \(ebayDevId.isEmpty ? "❌ Missing" : "✅ \(ebayDevId)")")
@@ -132,6 +148,15 @@ struct Configuration {
         print("✅ eBay Return Policy: \(ebayReturnPolicyId.isEmpty ? "⚠️ Will auto-create" : "✅ Configured")")
         print("✅ Environment: \(ebayEnvironment)")
         print("📊 Overall Status: \(configurationStatus)")
+        
+        if isExpertAIReady {
+            print("\n🧠 Expert AI Analysis Ready!")
+            print("• Model: \(expertAIModel)")
+            print("• Max Tokens: \(expertAIMaxTokens)")
+            print("• Temperature: \(expertAITemperature)")
+            print("• Features: Market intelligence, rarity assessment, hype analysis")
+            print("• Accuracy: Expert-level product identification and pricing")
+        }
         
         if isEbayConfigured {
             print("\n🎉 eBay Production OAuth 2.0 Integration Ready!")
@@ -150,36 +175,93 @@ struct Configuration {
             print("• Payment Policy: \(ebayPaymentPolicyId.isEmpty ? "Will auto-create" : ebayPaymentPolicyId)")
             print("• Return Policy: \(ebayReturnPolicyId.isEmpty ? "Will auto-create" : ebayReturnPolicyId)")
         }
+        
+        if isFullyConfigured {
+            print("\n🚀 ResellAI Ultimate Configuration Complete!")
+            print("• Expert AI: ✅ Ready for professional-grade analysis")
+            print("• eBay Integration: ✅ Production OAuth 2.0 ready")
+            print("• Auto-listing: ✅ Photos to eBay listings automatically")
+            print("• Market Intelligence: ✅ Rarity, hype, and pricing analysis")
+        }
     }
     
-    // MARK: - eBay Category Mappings
+    // MARK: - eBay Category Mappings (ENHANCED)
     static let ebayCategoryMappings: [String: String] = [
         "Sneakers": "15709",
         "Shoes": "15709",
         "Athletic Shoes": "15709",
+        "Running Shoes": "15709",
+        "Basketball Shoes": "15709",
+        "Skateboarding Shoes": "15709",
+        "Boots": "11498",
         "Clothing": "11450",
+        "Streetwear": "155206",
+        "Vintage": "175759",
+        "T-Shirts": "15687",
+        "Hoodies": "155183",
+        "Jackets": "11484",
+        "Pants": "11554",
+        "Jeans": "11483",
         "Electronics": "58058",
         "Smartphones": "9355",
         "Cell Phones": "9355",
+        "Gaming": "139973",
+        "Consoles": "139971",
+        "Apple": "9355",
+        "Samsung": "9355",
         "Accessories": "169291",
+        "Watches": "14324",
+        "Jewelry": "281",
+        "Bags": "169291",
         "Home": "11700",
         "Collectibles": "1",
+        "Trading Cards": "261328",
+        "Pokemon": "2536",
+        "Sports Cards": "212",
         "Books": "267",
         "Toys": "220",
+        "Action Figures": "246",
         "Sports": "888",
+        "Memorabilia": "64482",
         "Other": "99"
     ]
     
-    // MARK: - eBay Condition Mappings
+    // MARK: - eBay Condition Mappings (ENHANCED)
     static let ebayConditionMappings: [String: String] = [
         "New with tags": "NEW_WITH_TAGS",
         "New without tags": "NEW_WITHOUT_TAGS",
         "New other": "NEW_OTHER",
+        "Deadstock": "NEW_WITH_TAGS",
+        "VNDS": "NEW_WITHOUT_TAGS",
         "Like New": "USED_EXCELLENT",
         "Excellent": "USED_EXCELLENT",
         "Very Good": "USED_VERY_GOOD",
         "Good": "USED_GOOD",
+        "Fair": "USED_ACCEPTABLE",
         "Acceptable": "USED_ACCEPTABLE",
+        "Poor": "FOR_PARTS_OR_NOT_WORKING",
         "For parts or not working": "FOR_PARTS_OR_NOT_WORKING"
+    ]
+    
+    // MARK: - Expert AI Categories (NEW)
+    static let expertAICategories = [
+        "Sneakers & Footwear",
+        "Streetwear & Fashion",
+        "Electronics & Tech",
+        "Luxury Goods",
+        "Collectibles & Trading Cards",
+        "Vintage & Rare Items",
+        "Gaming & Consoles",
+        "Sports Memorabilia",
+        "Watches & Jewelry",
+        "Art & Antiques"
+    ]
+    
+    // MARK: - Hype Brand Recognition (NEW)
+    static let hypeBrands = [
+        "Off-White", "Supreme", "Fear of God", "Stone Island", "Yeezy",
+        "Travis Scott", "Fragment", "Kaws", "Virgil Abloh", "Palace",
+        "A Bathing Ape", "Comme des Garcons", "Rick Owens", "Chrome Hearts",
+        "Rolex", "Patek Philippe", "Richard Mille", "Apple", "PlayStation"
     ]
 }
