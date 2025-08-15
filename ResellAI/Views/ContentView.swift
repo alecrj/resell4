@@ -2,29 +2,35 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Main App Coordinator with Fixed eBay OAuth Handling
+//  Main App Coordinator with AuthService Integration
 //
 
 import SwiftUI
 import PhotosUI
 import AVFoundation
 
-// MARK: - MAIN CONTENT VIEW
+// MARK: - MAIN CONTENT VIEW (UPDATED FOR AUTH SERVICE)
 struct ContentView: View {
     @StateObject private var firebaseService = FirebaseService()
     @StateObject private var inventoryManager = InventoryManager()
     @StateObject private var businessService = BusinessService()
     
+    // Extract authService from firebaseService for direct access
+    private var authService: AuthService {
+        firebaseService.authService
+    }
+    
     var body: some View {
         Group {
-            if firebaseService.isAuthenticated {
+            if authService.isAuthenticated {
                 MainAppView()
+                    .environmentObject(authService)
                     .environmentObject(firebaseService)
                     .environmentObject(inventoryManager)
                     .environmentObject(businessService)
             } else {
                 WelcomeFlow()
-                    .environmentObject(firebaseService)
+                    .environmentObject(authService)
             }
         }
         .preferredColorScheme(.light)
@@ -66,15 +72,16 @@ struct ContentView: View {
     }
 }
 
-// MARK: - MAIN APP VIEW (FIXED)
+// MARK: - MAIN APP VIEW (UPDATED)
 struct MainAppView: View {
+    @EnvironmentObject var authService: AuthService
     @EnvironmentObject var firebaseService: FirebaseService
     @EnvironmentObject var businessService: BusinessService
     @State private var showingEbayConnect = false
     
     var body: some View {
         VStack(spacing: 0) {
-            // FIXED: Check the correct property and force UI refresh
+            // Check eBay authentication status from businessService
             if !businessService.ebayService.isAuthenticated {
                 EbayConnectView()
                     .environmentObject(businessService)
@@ -87,13 +94,13 @@ struct MainAppView: View {
         }
         .onAppear {
             print("🎯 MainAppView appeared")
-            print("• Firebase authenticated: \(firebaseService.isAuthenticated)")
+            print("• Auth authenticated: \(authService.isAuthenticated)")
             print("• eBay authenticated: \(businessService.ebayService.isAuthenticated)")
             if businessService.ebayService.isAuthenticated {
                 print("• Connected user: \(businessService.ebayService.connectedUserName)")
             }
         }
-        // FIXED: Force UI refresh when eBay auth state changes
+        // Force UI refresh when eBay auth state changes
         .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
             print("🔄 eBay auth state changed: \(isAuthenticated)")
             if isAuthenticated {
@@ -103,10 +110,10 @@ struct MainAppView: View {
     }
 }
 
-// MARK: - MAIN CAMERA VIEW (Renamed from CameraView to avoid confusion)
+// MARK: - MAIN CAMERA VIEW (UPDATED)
 struct MainCameraView: View {
     @EnvironmentObject var businessService: BusinessService
-    @EnvironmentObject var firebaseService: FirebaseService
+    @EnvironmentObject var authService: AuthService
     
     @State private var capturedImages: [UIImage] = []
     @State private var showingCamera = false
@@ -129,7 +136,7 @@ struct MainCameraView: View {
                 
                 Spacer()
                 
-                // eBay status indicator (FIXED: Use correct property)
+                // eBay status indicator
                 Button(action: { showingEbayStatus = true }) {
                     HStack(spacing: 4) {
                         Circle()
@@ -149,13 +156,13 @@ struct MainCameraView: View {
                 }
                 
                 // Usage indicator
-                if let user = firebaseService.currentUser {
+                if let user = authService.currentUser {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(firebaseService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
+                        Text("\(authService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
                             .font(DesignSystem.captionFont)
                             .foregroundColor(DesignSystem.secondary)
                         
-                        if !firebaseService.canAnalyze {
+                        if !authService.canAnalyze {
                             Text("Limit reached")
                                 .font(.caption2)
                                 .foregroundColor(.red)
@@ -205,7 +212,7 @@ struct MainCameraView: View {
                     onAnalyze: analyzePhotos,
                     onAddMore: { showingPhotoLibrary = true },
                     onReset: resetToCamera,
-                    canAnalyze: firebaseService.canAnalyze
+                    canAnalyze: authService.canAnalyze
                 )
             }
         }
@@ -270,7 +277,7 @@ struct MainCameraView: View {
     }
     
     private func analyzePhotos() {
-        guard firebaseService.canAnalyze else {
+        guard authService.canAnalyze else {
             errorMessage = "Monthly analysis limit reached. Please upgrade your plan."
             showingError = true
             return
@@ -298,7 +305,7 @@ struct MainCameraView: View {
     
     private func postToEbay() {
         guard let result = analysisResult else { return }
-        guard firebaseService.canCreateListing else {
+        guard authService.canCreateListing else {
             errorMessage = "Monthly listing limit reached. Please upgrade your plan."
             showingError = true
             return

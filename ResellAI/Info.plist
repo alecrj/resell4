@@ -54,8 +54,15 @@
         <string>UIInterfaceOrientationLandscapeLeft</string>
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
+    
+    <!-- ✅ GOOGLE SIGN-IN CONFIGURATION -->
+    <key>GIDClientID</key>
+    <string>633237603994-trq9c9789f1sjb5tad7ptsj1ojfejord.apps.googleusercontent.com</string>
+    
+    <!-- ✅ URL SCHEMES FOR OAUTH -->
     <key>CFBundleURLTypes</key>
     <array>
+        <!-- eBay OAuth URL Scheme -->
         <dict>
             <key>CFBundleURLName</key>
             <string>com.alec.ResellAI.oauth</string>
@@ -66,13 +73,27 @@
             <key>CFBundleURLIconFile</key>
             <string></string>
         </dict>
+        <!-- Google Sign-In URL Scheme -->
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.alec.ResellAI.google</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.googleusercontent.apps.633237603994-trq9c9789f1sjb5tad7ptsj1ojfejord</string>
+            </array>
+            <key>CFBundleURLIconFile</key>
+            <string></string>
+        </dict>
     </array>
+    
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>LSApplicationQueriesSchemes</key>
     <array>
         <string>https</string>
         <string>http</string>
+        <string>googlegmail</string>
+        <string>googleplus</string>
     </array>
 </dict>
 </plist>

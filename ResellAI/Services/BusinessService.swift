@@ -2,7 +2,7 @@
 //  BusinessService.swift
 //  ResellAI
 //
-//  Main Business Service - Safe Update (Uses Both OAuth + Listing Services)
+//  Main Business Service - Updated for AuthService Integration
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ import FirebaseFirestore
 import CryptoKit
 import SafariServices
 
-// MARK: - MAIN BUSINESS SERVICE (SAFE - USES BOTH SERVICES)
+// MARK: - MAIN BUSINESS SERVICE (UPDATED FOR AUTH SERVICE)
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -38,20 +38,22 @@ class BusinessService: ObservableObject {
     
     private let googleSheetsService = GoogleSheetsService()
     
-    // Firebase integration
+    // Firebase integration (updated to work with AuthService)
     private weak var firebaseService: FirebaseService?
+    private weak var authService: AuthService?
     
     // Queue processing timer
     private var queueTimer: Timer?
     
     init() {
-        print("🚀 ResellAI Business Service initialized with Safe Architecture")
+        print("🚀 ResellAI Business Service initialized with AuthService Integration")
         loadSavedQueue()
     }
     
     func initialize(with firebaseService: FirebaseService? = nil) {
         Configuration.validateConfiguration()
         self.firebaseService = firebaseService
+        self.authService = firebaseService?.authService
         authenticateGoogleSheets()
         
         // ✅ INITIALIZE YOUR WORKING OAUTH SERVICE (UNCHANGED)
@@ -184,8 +186,9 @@ class BusinessService: ObservableObject {
     // MARK: - PRIVATE QUEUE PROCESSING METHODS
     
     private func canProcessQueue() -> Bool {
-        guard let firebase = firebaseService else { return false }
-        return firebase.canAnalyze && !processingQueue.rateLimitHit
+        // Updated to use AuthService
+        guard let authService = authService else { return false }
+        return authService.canAnalyze && !processingQueue.rateLimitHit
     }
     
     private func startQueueProcessingTimer() {
@@ -242,8 +245,8 @@ class BusinessService: ObservableObject {
             return
         }
         
-        // Track usage in Firebase - but don't count failures against limit
-        firebaseService?.trackUsage(action: "analysis", metadata: [
+        // Track usage in AuthService - but don't count failures against limit
+        authService?.trackUsage(action: "analysis", metadata: [
             "source": "queue",
             "item_position": "\(item.position)",
             "photo_count": "\(photos.count)"
@@ -429,7 +432,7 @@ class BusinessService: ObservableObject {
         }
     }
     
-    // MARK: - ANALYSIS METHODS
+    // MARK: - ANALYSIS METHODS (UPDATED TO USE AUTH SERVICE)
     
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
@@ -437,8 +440,8 @@ class BusinessService: ObservableObject {
             return
         }
         
-        // Check Firebase usage limits
-        if let firebase = firebaseService, !firebase.canAnalyze {
+        // Check AuthService usage limits
+        if let authService = authService, !authService.canAnalyze {
             print("⚠️ Monthly analysis limit reached")
             completion(nil)
             return
@@ -446,8 +449,8 @@ class BusinessService: ObservableObject {
         
         print("🔍 Starting ResellAI analysis with \(images.count) images")
         
-        // Track usage in Firebase
-        firebaseService?.trackUsage(action: "analysis", metadata: [
+        // Track usage in AuthService
+        authService?.trackUsage(action: "analysis", metadata: [
             "source": "single_item",
             "image_count": "\(images.count)",
             "timestamp": ISO8601DateFormatter().string(from: Date())
@@ -957,12 +960,12 @@ class BusinessService: ObservableObject {
     
     // ✅ REAL EBAY LISTING CREATION - USES NEW LISTING SERVICE
     func createEbayListing(from analysis: AnalysisResult, images: [UIImage], completion: @escaping (Bool, String?) -> Void) {
-        guard let firebase = firebaseService else {
-            completion(false, "Firebase not initialized")
+        guard let authService = authService else {
+            completion(false, "Auth service not initialized")
             return
         }
         
-        if !firebase.canCreateListing {
+        if !authService.canCreateListing {
             completion(false, "Monthly listing limit reached. Please upgrade your plan.")
             return
         }
@@ -984,7 +987,7 @@ class BusinessService: ObservableObject {
         // ✅ USE NEW LISTING SERVICE WITH TOKEN FROM OAUTH SERVICE
         ebayListingService.createListing(analysis: analysis, images: images, accessToken: accessToken) { [weak self] success, errorMessage in
             if success {
-                firebase.trackUsage(action: "listing_created", metadata: [
+                authService.trackUsage(action: "listing_created", metadata: [
                     "item_name": analysis.name,
                     "price": String(format: "%.2f", analysis.suggestedPrice),
                     "category": analysis.category

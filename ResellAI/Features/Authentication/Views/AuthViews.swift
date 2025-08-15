@@ -2,14 +2,14 @@
 //  AuthViews.swift
 //  ResellAI
 //
-//  Authentication Flow Views
+//  Authentication Feature - Views
 //
 
 import SwiftUI
 
 // MARK: - WELCOME FLOW
 struct WelcomeFlow: View {
-    @EnvironmentObject var firebaseService: FirebaseService
+    @EnvironmentObject var authService: AuthService
     @State private var currentStep = 0
     @State private var showingAuth = false
     
@@ -154,7 +154,7 @@ struct WalkthroughStep: View {
 
 // MARK: - AUTH SCREEN
 struct AuthScreen: View {
-    @EnvironmentObject var firebaseService: FirebaseService
+    @EnvironmentObject var authService: AuthService
     
     var body: some View {
         VStack(spacing: DesignSystem.spacing4) {
@@ -172,7 +172,7 @@ struct AuthScreen: View {
             
             VStack(spacing: DesignSystem.spacing2) {
                 // Apple Sign In
-                Button(action: { firebaseService.signInWithApple() }) {
+                Button(action: { authService.signInWithApple() }) {
                     HStack {
                         Image(systemName: "applelogo")
                             .font(.system(size: 18, weight: .semibold))
@@ -188,7 +188,7 @@ struct AuthScreen: View {
                 }
                 
                 // Google Sign In
-                Button(action: { firebaseService.signInWithGoogle() }) {
+                Button(action: { authService.signInWithGoogle() }) {
                     HStack {
                         Image(systemName: "globe")
                             .font(.system(size: 18, weight: .semibold))
@@ -208,7 +208,7 @@ struct AuthScreen: View {
             Spacer()
             
             // Show error if any
-            if let error = firebaseService.authError {
+            if let error = authService.authError {
                 Text(error)
                     .font(DesignSystem.captionFont)
                     .foregroundColor(.red)
@@ -220,7 +220,7 @@ struct AuthScreen: View {
         .background(DesignSystem.background)
         .overlay(
             Group {
-                if firebaseService.isLoading {
+                if authService.isLoading {
                     LoadingOverlay()
                 }
             }

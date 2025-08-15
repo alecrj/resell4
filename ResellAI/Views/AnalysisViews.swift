@@ -2,7 +2,7 @@
 //  AnalysisViews.swift
 //  ResellAI
 //
-//  Camera and Analysis Flow Views - iOS 16 Compatible
+//  Camera and Analysis Flow Views - iOS 16 Compatible (SettingsView Removed)
 //
 
 import SwiftUI
@@ -480,107 +480,6 @@ struct CameraPickerView: UIViewControllerRepresentable {
         
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             dismiss()
-        }
-    }
-}
-
-// MARK: - SETTINGS VIEW
-struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject var firebaseService: FirebaseService
-    @EnvironmentObject var businessService: BusinessService
-    
-    var body: some View {
-        NavigationView {
-            List {
-                Section("Account") {
-                    if let user = firebaseService.currentUser {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(user.displayName ?? "User")
-                                .font(DesignSystem.bodyFont)
-                                .fontWeight(.semibold)
-                            
-                            Text(user.email ?? "")
-                                .font(DesignSystem.captionFont)
-                                .foregroundColor(DesignSystem.secondary)
-                        }
-                    }
-                    
-                    Button("Sign Out") {
-                        firebaseService.signOut()
-                    }
-                    .foregroundColor(.red)
-                }
-                
-                Section("eBay Connection") {
-                    HStack {
-                        Text("Status")
-                        Spacer()
-                        Text(businessService.isEbayAuthenticated ? "Connected" : "Not Connected")
-                            .foregroundColor(businessService.isEbayAuthenticated ? .green : .red)
-                    }
-                    
-                    if businessService.isEbayAuthenticated {
-                        HStack {
-                            Text("Account")
-                            Spacer()
-                            Text(businessService.ebayService.connectedUserName)
-                                .foregroundColor(DesignSystem.secondary)
-                        }
-                        
-                        Button("Disconnect eBay") {
-                            businessService.ebayService.signOut()
-                        }
-                        .foregroundColor(.red)
-                    }
-                }
-                
-                Section("Usage") {
-                    if let user = firebaseService.currentUser {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Analyses")
-                                Spacer()
-                                Text("\(firebaseService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
-                                    .foregroundColor(DesignSystem.secondary)
-                            }
-                            
-                            ProgressView(value: Double(firebaseService.monthlyAnalysisCount) / Double(user.monthlyAnalysisLimit))
-                                .progressViewStyle(LinearProgressViewStyle(tint: DesignSystem.neonGreen))
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Text("Listings")
-                                Spacer()
-                                Text("\(firebaseService.monthlyListingCount)/\(user.monthlyListingLimit)")
-                                    .foregroundColor(DesignSystem.secondary)
-                            }
-                            
-                            ProgressView(value: Double(firebaseService.monthlyListingCount) / Double(user.monthlyListingLimit))
-                                .progressViewStyle(LinearProgressViewStyle(tint: DesignSystem.neonGreen))
-                        }
-                    }
-                }
-                
-                Section("App") {
-                    HStack {
-                        Text("Version")
-                        Spacer()
-                        Text(Configuration.version)
-                            .foregroundColor(DesignSystem.secondary)
-                    }
-                }
-            }
-            .navigationTitle("Settings")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-            }
         }
     }
 }
