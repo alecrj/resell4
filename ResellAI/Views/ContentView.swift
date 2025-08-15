@@ -2,14 +2,14 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Main App Coordinator with Fixed AuthService Integration
+//  Main App Coordinator with Fixed OAuth Callback & UI Updates
 //
 
 import SwiftUI
 import PhotosUI
 import AVFoundation
 
-// MARK: - MAIN CONTENT VIEW (FIXED AUTH STATE HANDLING)
+// MARK: - MAIN CONTENT VIEW (FIXED OAUTH CALLBACK & UI UPDATES)
 struct ContentView: View {
     @StateObject private var firebaseService = FirebaseService()
     @StateObject private var inventoryManager = InventoryManager()
@@ -54,6 +54,17 @@ struct ContentView: View {
                 print("⚠️ User not authenticated - showing welcome flow")
             }
         }
+        // FIXED: Listen for eBay authentication changes to force UI refresh
+        .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
+            print("🔄 eBay auth state changed in ContentView: \(isAuthenticated)")
+            if isAuthenticated {
+                print("✅ eBay connected - forcing UI refresh")
+                // Force a UI refresh by updating a state variable
+                DispatchQueue.main.async {
+                    self.businessService.objectWillChange.send()
+                }
+            }
+        }
     }
     
     private func initializeServices() {
@@ -77,6 +88,12 @@ struct ContentView: View {
             if url.path.contains("ebay") || url.absoluteString.contains("ebay") {
                 print("🔗 Handling eBay Auth callback")
                 businessService.handleEbayAuthCallback(url: url)
+                
+                // FIXED: Force UI refresh after handling callback
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    print("🔄 Forcing UI state refresh after eBay callback")
+                    self.businessService.objectWillChange.send()
+                }
             } else {
                 print("⚠️ Unknown auth callback: \(url)")
             }
@@ -86,46 +103,106 @@ struct ContentView: View {
     }
 }
 
-// MARK: - MAIN APP VIEW (UPDATED)
+// MARK: - DEBUG MAIN APP VIEW (REPLACE IN CONTENTVIEW.SWIFT)
 struct MainAppView: View {
     @EnvironmentObject var authService: AuthService
     @EnvironmentObject var firebaseService: FirebaseService
     @EnvironmentObject var businessService: BusinessService
     @State private var showingEbayConnect = false
+    @State private var debugRefresh = false
     
     var body: some View {
         VStack(spacing: 0) {
-            // Check eBay authentication status from businessService
-            if !businessService.ebayService.isAuthenticated {
-                EbayConnectView()
-                    .environmentObject(businessService)
-            } else {
-                MainCameraView()
+            // DEBUG INFO - Remove this after testing
+            VStack(spacing: 4) {
+                Text("DEBUG INFO:")
+                    .font(.caption)
+                    .foregroundColor(.red)
+                
+                Text("eBay authenticated: \(businessService.ebayService.isAuthenticated ? "YES" : "NO")")
+                    .font(.caption)
+                    .foregroundColor(businessService.ebayService.isAuthenticated ? .green : .red)
+                
+                Text("eBay user: \(businessService.ebayService.connectedUserName.isEmpty ? "NONE" : businessService.ebayService.connectedUserName)")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                
+                Text("Auth status: \(businessService.ebayService.authStatus)")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                
+                Button("Force Refresh") {
+                    debugRefresh.toggle()
+                    businessService.objectWillChange.send()
+                }
+                .font(.caption)
+                .padding(4)
+                .background(Color.yellow)
+                .cornerRadius(4)
             }
-        }
-        .sheet(isPresented: $showingEbayConnect) {
-            EbayConnectSheet()
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            
+            // Main content with forced refresh
+            Group {
+                if businessService.ebayService.isAuthenticated {
+                    VStack {
+                        Text("🎉 eBay Connected!")
+                            .font(.title)
+                            .foregroundColor(.green)
+                        
+                        Text("User: \(businessService.ebayService.connectedUserName)")
+                            .font(.title2)
+                        
+                        Text("Ready to use main camera!")
+                            .font(.body)
+                            .padding()
+                        
+                        // For now, just show this instead of MainCameraView to test
+                        Button("Test Camera View") {
+                            print("Would transition to camera")
+                        }
+                        .padding()
+                        .background(DesignSystem.neonGreen)
+                        .foregroundColor(.black)
+                        .cornerRadius(8)
+                    }
+                    .padding()
+                } else {
+                    VStack {
+                        Text("❌ eBay Not Connected")
+                            .font(.title)
+                            .foregroundColor(.red)
+                        
+                        EbayConnectView()
+                            .environmentObject(businessService)
+                    }
+                }
+            }
+            .id("main-content-\(debugRefresh)")
         }
         .onAppear {
             print("🎯 MainAppView appeared")
             print("• Auth authenticated: \(authService.isAuthenticated)")
             print("• User: \(authService.currentUser?.displayName ?? "Unknown")")
             print("• eBay authenticated: \(businessService.ebayService.isAuthenticated)")
-            if businessService.ebayService.isAuthenticated {
-                print("• Connected user: \(businessService.ebayService.connectedUserName)")
+            print("• eBay user: \(businessService.ebayService.connectedUserName)")
+        }
+        .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
+            print("🔄 MainAppView detected eBay auth change: \(isAuthenticated)")
+            if isAuthenticated {
+                print("✅ eBay connected - should show camera view")
+                debugRefresh.toggle() // Force UI refresh
             }
         }
-        // Force UI refresh when eBay auth state changes
-        .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
-            print("🔄 eBay auth state changed: \(isAuthenticated)")
-            if isAuthenticated {
-                print("✅ eBay connected - transitioning to main camera view")
-            }
+        .onChange(of: businessService.ebayService.connectedUserName) { userName in
+            print("🔄 MainAppView detected user name change: \(userName)")
+            debugRefresh.toggle() // Force UI refresh
         }
     }
 }
 
-// MARK: - MAIN CAMERA VIEW (UPDATED)
+// MARK: - MAIN CAMERA VIEW (UPDATED WITH BETTER STATE HANDLING)
 struct MainCameraView: View {
     @EnvironmentObject var businessService: BusinessService
     @EnvironmentObject var authService: AuthService
@@ -143,7 +220,7 @@ struct MainCameraView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with eBay status
+            // Header with eBay status - FIXED with better status display
             HStack {
                 Text("ResellAI")
                     .font(DesignSystem.titleFont)
@@ -151,7 +228,7 @@ struct MainCameraView: View {
                 
                 Spacer()
                 
-                // eBay status indicator
+                // eBay status indicator - FIXED
                 Button(action: { showingEbayStatus = true }) {
                     HStack(spacing: 4) {
                         Circle()
@@ -159,11 +236,11 @@ struct MainCameraView: View {
                             .frame(width: 8, height: 8)
                         
                         if businessService.ebayService.isAuthenticated {
-                            Text(businessService.ebayService.connectedUserName.isEmpty ? "eBay" : businessService.ebayService.connectedUserName)
+                            Text(businessService.ebayService.connectedUserName.isEmpty ? "eBay Connected" : businessService.ebayService.connectedUserName)
                                 .font(DesignSystem.captionFont)
                                 .foregroundColor(DesignSystem.secondary)
                         } else {
-                            Text("Not connected")
+                            Text("eBay Not Connected")
                                 .font(DesignSystem.captionFont)
                                 .foregroundColor(DesignSystem.secondary)
                         }
@@ -271,6 +348,11 @@ struct MainCameraView: View {
                     selectedItems = []
                 }
             }
+        }
+        .onAppear {
+            print("📱 MainCameraView appeared")
+            print("• eBay authenticated: \(businessService.ebayService.isAuthenticated)")
+            print("• eBay user: \(businessService.ebayService.connectedUserName)")
         }
     }
     

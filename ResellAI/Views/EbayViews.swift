@@ -2,17 +2,18 @@
 //  EbayViews.swift
 //  ResellAI
 //
-//  eBay Integration Views with User Account Display
+//  Fixed eBay Integration Views with Proper State Transitions
 //
 
 import SwiftUI
 
-// MARK: - EBAY CONNECT VIEW
+// MARK: - EBAY CONNECT VIEW (FIXED AUTO-TRANSITION)
 struct EbayConnectView: View {
     @EnvironmentObject var businessService: BusinessService
     @State private var isConnecting = false
     @State private var showingError = false
     @State private var errorMessage = ""
+    @State private var shouldAutoTransition = false
     
     var body: some View {
         VStack(spacing: DesignSystem.spacing4) {
@@ -21,7 +22,7 @@ struct EbayConnectView: View {
             // eBay logo and status
             VStack(spacing: DesignSystem.spacing2) {
                 RoundedRectangle(cornerRadius: DesignSystem.cornerRadius)
-                    .fill(businessService.isEbayAuthenticated ? Color.blue : Color.gray)
+                    .fill(businessService.ebayService.isAuthenticated ? Color.blue : Color.gray)
                     .frame(width: 80, height: 80)
                     .overlay(
                         Text("eBay")
@@ -42,23 +43,34 @@ struct EbayConnectView: View {
                 
                 // Connection status indicator
                 ConnectionStatusCard(
-                    isConnected: businessService.isEbayAuthenticated,
-                    status: businessService.ebayAuthStatus,
+                    isConnected: businessService.ebayService.isAuthenticated,
+                    status: businessService.ebayService.authStatus,
                     connectedUser: businessService.ebayService.connectedUserName
                 )
             }
             
             Spacer()
             
-            // Action buttons
+            // Action buttons - FIXED with auto-transition
             VStack(spacing: DesignSystem.spacing2) {
-                if businessService.isEbayAuthenticated {
-                    PrimaryButton(title: "Continue to App") {
-                        // This will trigger the main app view
-                    }
-                    
-                    SecondaryButton(title: "Disconnect eBay") {
-                        businessService.ebayService.signOut()
+                if businessService.ebayService.isAuthenticated {
+                    // Show success message and auto-transition
+                    VStack(spacing: DesignSystem.spacing2) {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                                .font(.title2)
+                            Text("Connected to eBay!")
+                                .font(DesignSystem.headlineFont)
+                                .foregroundColor(DesignSystem.primary)
+                        }
+                        
+                        Text("Transitioning to main app...")
+                            .font(DesignSystem.bodyFont)
+                            .foregroundColor(DesignSystem.secondary)
+                        
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: DesignSystem.neonGreen))
                     }
                 } else {
                     PrimaryButton(
@@ -86,8 +98,28 @@ struct EbayConnectView: View {
         }
         .onAppear {
             // Check authentication status on appear
-            print("🔍 eBay connection status: \(businessService.isEbayAuthenticated)")
+            print("🔍 EbayConnectView appeared - isAuthenticated: \(businessService.ebayService.isAuthenticated)")
             print("🔍 eBay user: \(businessService.ebayService.connectedUserName)")
+        }
+        // FIXED: Auto-transition when authentication completes
+        .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
+            print("🔄 EbayConnectView detected auth change: \(isAuthenticated)")
+            if isAuthenticated {
+                print("✅ eBay connected - setting auto-transition flag")
+                shouldAutoTransition = true
+                
+                // Auto-transition after showing success for 2 seconds
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    print("🚀 Auto-transitioning to main app")
+                    // The parent view will handle this by checking isAuthenticated
+                }
+            }
+        }
+        .onChange(of: businessService.ebayService.connectedUserName) { userName in
+            print("🔄 EbayConnectView detected user name change: \(userName)")
+            if !userName.isEmpty && businessService.ebayService.isAuthenticated {
+                shouldAutoTransition = true
+            }
         }
     }
     
@@ -105,7 +137,7 @@ struct EbayConnectView: View {
     }
 }
 
-// MARK: - CONNECTION STATUS CARD
+// MARK: - CONNECTION STATUS CARD (ENHANCED)
 struct ConnectionStatusCard: View {
     let isConnected: Bool
     let status: String
@@ -162,7 +194,7 @@ struct ConnectionStatusCard: View {
     }
 }
 
-// MARK: - EBAY CONNECT SHEET
+// MARK: - EBAY CONNECT SHEET (FIXED DISMISS HANDLING)
 struct EbayConnectSheet: View {
     @EnvironmentObject var businessService: BusinessService
     @Environment(\.dismiss) private var dismiss
@@ -222,15 +254,15 @@ struct EbayConnectSheet: View {
                 
                 // Current connection status
                 ConnectionStatusCard(
-                    isConnected: businessService.isEbayAuthenticated,
-                    status: businessService.ebayAuthStatus,
+                    isConnected: businessService.ebayService.isAuthenticated,
+                    status: businessService.ebayService.authStatus,
                     connectedUser: businessService.ebayService.connectedUserName
                 )
                 .padding(.horizontal, DesignSystem.spacing3)
                 
                 // Actions
                 VStack(spacing: DesignSystem.spacing2) {
-                    if businessService.isEbayAuthenticated {
+                    if businessService.ebayService.isAuthenticated {
                         PrimaryButton(title: "Done") {
                             dismiss()
                         }
@@ -283,6 +315,15 @@ struct EbayConnectSheet: View {
         } message: {
             Text(errorMessage)
         }
+        // FIXED: Auto-dismiss when connected
+        .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
+            if isAuthenticated {
+                print("✅ eBay connected in sheet - auto-dismissing after delay")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    dismiss()
+                }
+            }
+        }
     }
     
     private func connectToEbay() {
@@ -292,7 +333,7 @@ struct EbayConnectSheet: View {
                 isConnecting = false
                 if success {
                     print("✅ eBay connection successful")
-                    // Don't auto-dismiss to let user see the connected status
+                    // Auto-dismiss will happen via onChange
                 } else {
                     errorMessage = "Failed to connect to eBay. Please check your internet connection and try again."
                     showingError = true
@@ -339,10 +380,10 @@ struct EbayAccountStatus: View {
     var body: some View {
         HStack {
             Circle()
-                .fill(businessService.isEbayAuthenticated ? Color.green : Color.red)
+                .fill(businessService.ebayService.isAuthenticated ? Color.green : Color.red)
                 .frame(width: 8, height: 8)
             
-            if businessService.isEbayAuthenticated {
+            if businessService.ebayService.isAuthenticated {
                 Text("eBay: \(businessService.ebayService.connectedUserName)")
                     .font(DesignSystem.captionFont)
                     .foregroundColor(DesignSystem.secondary)

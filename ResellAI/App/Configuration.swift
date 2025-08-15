@@ -2,12 +2,12 @@
 //  Configuration.swift
 //  ResellAI
 //
-//  Safe Configuration Update - Environment Variables + Fallbacks
+//  Fixed Configuration with Working eBay OAuth Settings
 //
 
 import Foundation
 
-// MARK: - Safe Configuration with Environment Variables
+// MARK: - Fixed Configuration with Working eBay OAuth
 struct Configuration {
     
     // MARK: - API Keys from Environment Variables
@@ -21,14 +21,14 @@ struct Configuration {
     
     static let googleCloudAPIKey = ProcessInfo.processInfo.environment["GOOGLE_CLOUD_API_KEY"] ?? ""
     
-    // ✅ KEEP YOUR WORKING EBAY CREDENTIALS (WITH ENV FALLBACKS)
+    // ✅ WORKING EBAY CREDENTIALS - KEEP THESE EXACT VALUES
     static let ebayAPIKey = ProcessInfo.processInfo.environment["EBAY_API_KEY"] ?? "AlecRodr-resell-PRD-d0bc91504-be3e553a"
     static let ebayClientSecret = ProcessInfo.processInfo.environment["EBAY_CLIENT_SECRET"] ?? "PRD-0bc91504af12-57f0-49aa-8bb7-763a"
     static let ebayDevId = ProcessInfo.processInfo.environment["EBAY_DEV_ID"] ?? "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
     static let ebayEnvironment = "PRODUCTION"
     
-    // ✅ KEEP YOUR WORKING OAUTH REDIRECT URIS
-    static let ebayRedirectURI = ProcessInfo.processInfo.environment["EBAY_REDIRECT_URI"] ?? "https://resellai-auth.vercel.app/ebay-callback"
+    // ✅ WORKING OAUTH REDIRECT URIS - THESE WERE WORKING
+    static let ebayRedirectURI = ProcessInfo.processInfo.environment["EBAY_REDIRECT_URI"] ?? "https://resellaiapp.com/ebay-callback.html"
     static let ebayAppScheme = "resellai://auth/ebay"
     static let ebayRuName = ProcessInfo.processInfo.environment["EBAY_RU_NAME"] ?? "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
     
@@ -97,19 +97,13 @@ struct Configuration {
     static var isFullyConfigured: Bool {
         return !openAIKey.isEmpty &&
                !ebayAPIKey.isEmpty &&
-               !ebayClientSecret.isEmpty &&
-               !ebayFulfillmentPolicyId.isEmpty &&
-               !ebayPaymentPolicyId.isEmpty &&
-               !ebayReturnPolicyId.isEmpty
+               !ebayClientSecret.isEmpty
     }
     
     static var isEbayConfigured: Bool {
         return !ebayAPIKey.isEmpty &&
                !ebayClientSecret.isEmpty &&
-               !ebayDevId.isEmpty &&
-               !ebayFulfillmentPolicyId.isEmpty &&
-               !ebayPaymentPolicyId.isEmpty &&
-               !ebayReturnPolicyId.isEmpty
+               !ebayDevId.isEmpty
     }
     
     static var configurationStatus: String {
@@ -121,14 +115,11 @@ struct Configuration {
             if ebayAPIKey.isEmpty { missing.append("eBay API Key") }
             if ebayClientSecret.isEmpty { missing.append("eBay Client Secret") }
             if ebayDevId.isEmpty { missing.append("eBay Dev ID") }
-            if ebayFulfillmentPolicyId.isEmpty { missing.append("eBay Fulfillment Policy") }
-            if ebayPaymentPolicyId.isEmpty { missing.append("eBay Payment Policy") }
-            if ebayReturnPolicyId.isEmpty { missing.append("eBay Return Policy") }
             return "Missing: \(missing.joined(separator: ", "))"
         }
     }
     
-    // MARK: - Development Helpers (SAFE VALIDATION)
+    // MARK: - Development Helpers
     static func validateConfiguration() {
         print("🔧 ResellAI Configuration Status:")
         print("✅ OpenAI: \(openAIKey.isEmpty ? "❌ Missing" : "✅ Configured")")
@@ -141,12 +132,6 @@ struct Configuration {
         print("✅ eBay Return Policy: \(ebayReturnPolicyId.isEmpty ? "⚠️ Will auto-create" : "✅ Configured")")
         print("✅ Environment: \(ebayEnvironment)")
         print("📊 Overall Status: \(configurationStatus)")
-        
-        if isFullyConfigured {
-            print("🚀 All APIs configured - ResellAI ready!")
-        } else {
-            print("⚠️ Some APIs need configuration")
-        }
         
         if isEbayConfigured {
             print("\n🎉 eBay Production OAuth 2.0 Integration Ready!")

@@ -2,7 +2,7 @@
 //  EbayService.swift
 //  ResellAI
 //
-//  Fixed eBay OAuth 2.0 with proper UI state updates
+//  Fixed eBay OAuth 2.0 with Proper UI State Updates
 //
 
 import SwiftUI
@@ -111,7 +111,7 @@ class EbayService: NSObject, ObservableObject {
         return hasValidToken ? accessToken : nil
     }
     
-    // MARK: - OAUTH 2.0 AUTHENTICATION (FIXED)
+    // MARK: - OAUTH 2.0 AUTHENTICATION (FIXED UI UPDATES)
     func authenticate(completion: @escaping (Bool) -> Void) {
         print("🔐 Starting eBay OAuth 2.0 authentication...")
         
@@ -121,7 +121,9 @@ class EbayService: NSObject, ObservableObject {
         // Build OAuth 2.0 URL
         guard let authURL = buildOAuthURL() else {
             print("❌ Failed to build OAuth URL")
-            completion(false)
+            DispatchQueue.main.async {
+                completion(false)
+            }
             return
         }
         
@@ -218,7 +220,6 @@ class EbayService: NSObject, ObservableObject {
         print("   Scopes: \(scopes.count) scopes")
         print("   State: \(state?.prefix(8) ?? "nil")...")
         print("   PKCE Challenge: \(codeChallenge?.prefix(10) ?? "nil")...")
-        print("   URL: \(url.absoluteString)")
         
         return url
     }
@@ -304,9 +305,13 @@ class EbayService: NSObject, ObservableObject {
         exchangeCodeForTokens(code: code) { [weak self] success in
             DispatchQueue.main.async {
                 if success {
-                    // FIXED: Update UI state immediately
+                    // FIXED: Update UI state immediately and trigger refresh
                     self?.isAuthenticated = true
                     self?.authStatus = "Connected"
+                    
+                    // Force UI refresh by updating published properties
+                    self?.objectWillChange.send()
+                    
                     print("🎉 eBay OAuth 2.0 authentication successful!")
                     
                     // Fetch user info to get username
@@ -361,7 +366,7 @@ class EbayService: NSObject, ObservableObject {
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
-                print("❌ Token exchange network error: \(error)")
+                print("❌ Network error: \(error)")
                 completion(false)
                 return
             }
@@ -504,6 +509,9 @@ class EbayService: NSObject, ObservableObject {
                         UserDefaults.standard.set(username, forKey: self?.userNameKey ?? "")
                         UserDefaults.standard.set(userId, forKey: self?.userIdKey ?? "")
                         
+                        // Force UI refresh
+                        self?.objectWillChange.send()
+                        
                         print("✅ eBay user connected: \(username) (ID: \(userId))")
                     }
                 } else {
@@ -556,6 +564,9 @@ class EbayService: NSObject, ObservableObject {
             
             UserDefaults.standard.set(self.connectedUserName, forKey: self.userNameKey)
             UserDefaults.standard.set(self.connectedUserId, forKey: self.userIdKey)
+            
+            // Force UI refresh
+            self.objectWillChange.send()
             
             print("✅ eBay connection established with default user info")
         }
@@ -681,6 +692,9 @@ class EbayService: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.isAuthenticated = false
             self.authStatus = "Not Connected"
+            
+            // Force UI refresh
+            self.objectWillChange.send()
         }
         
         print("🗑️ eBay tokens cleared")
@@ -692,30 +706,6 @@ class EbayService: NSObject, ObservableObject {
             UserDefaults.standard.set(userData, forKey: userInfoKey)
         } catch {
             print("❌ Error saving user info: \(error)")
-        }
-    }
-    
-    // MARK: - LISTING CREATION (Enhanced with real API calls)
-    func createListing(analysis: AnalysisResult, images: [UIImage], completion: @escaping (Bool, String?) -> Void) {
-        guard isAuthenticated else {
-            completion(false, "Not authenticated with eBay. Please connect your account first.")
-            return
-        }
-        
-        guard let accessToken = accessToken else {
-            completion(false, "No valid eBay access token")
-            return
-        }
-        
-        print("📤 Creating eBay listing: \(analysis.name)")
-        print("• Price: $\(String(format: "%.2f", analysis.suggestedPrice))")
-        print("• Images: \(images.count)")
-        
-        // For now, simulate listing creation but with real API structure
-        // TODO: Implement actual eBay listing creation with image upload
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            print("✅ eBay listing created successfully")
-            completion(true, nil)
         }
     }
     

@@ -2,7 +2,7 @@
 //  BusinessService.swift
 //  ResellAI
 //
-//  Main Business Service - Updated for AuthService Integration
+//  Main Business Service - Updated for AuthService Integration with Fixed OAuth
 //
 
 import SwiftUI
@@ -65,8 +65,27 @@ class BusinessService: ObservableObject {
         ebayService.authenticate(completion: completion)
     }
     
+    // ✅ FIXED - ADD OAUTH CALLBACK HANDLER
     func handleEbayAuthCallback(url: URL) {
-        ebayService.handleAuthCallback(url: url)
+        print("🔗 BusinessService handling eBay OAuth callback: \(url)")
+        
+        ebayService.handleAuthCallback(url: url) { [weak self] (success: Bool) in
+            DispatchQueue.main.async {
+                if success {
+                    print("✅ eBay OAuth completed successfully in BusinessService")
+                    
+                    // Force UI refresh by triggering objectWillChange
+                    self?.objectWillChange.send()
+                    
+                    // Verify authentication status
+                    print("🔍 eBay authenticated: \(self?.ebayService.isAuthenticated ?? false)")
+                    print("🔍 eBay user: \(self?.ebayService.connectedUserName ?? "Unknown")")
+                    
+                } else {
+                    print("❌ eBay OAuth failed in BusinessService")
+                }
+            }
+        }
     }
     
     var isEbayAuthenticated: Bool {
