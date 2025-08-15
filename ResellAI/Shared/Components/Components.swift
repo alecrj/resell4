@@ -2,7 +2,7 @@
 //  Components.swift
 //  ResellAI
 //
-//  Reusable UI Components - FIXED VERSION
+//  Reusable UI Components
 //
 
 import SwiftUI

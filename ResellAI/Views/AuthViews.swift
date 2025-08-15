@@ -1,12 +1,4 @@
 //
-//  WelcomeFlow.swift
-//  ResellAI
-//
-//  Created by Alec on 8/14/25.
-//
-
-
-//
 //  AuthViews.swift
 //  ResellAI
 //
