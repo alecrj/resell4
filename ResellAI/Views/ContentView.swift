@@ -2,22 +2,28 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Main App Coordinator with AuthService Integration
+//  Main App Coordinator with Fixed AuthService Integration
 //
 
 import SwiftUI
 import PhotosUI
 import AVFoundation
 
-// MARK: - MAIN CONTENT VIEW (UPDATED FOR AUTH SERVICE)
+// MARK: - MAIN CONTENT VIEW (FIXED AUTH STATE HANDLING)
 struct ContentView: View {
     @StateObject private var firebaseService = FirebaseService()
     @StateObject private var inventoryManager = InventoryManager()
     @StateObject private var businessService = BusinessService()
     
-    // Extract authService from firebaseService for direct access
-    private var authService: AuthService {
-        firebaseService.authService
+    // Directly observe the authService to ensure proper state updates
+    @ObservedObject private var authService: AuthService
+    
+    init() {
+        let firebase = FirebaseService()
+        self._firebaseService = StateObject(wrappedValue: firebase)
+        self.authService = firebase.authService
+        self._inventoryManager = StateObject(wrappedValue: InventoryManager())
+        self._businessService = StateObject(wrappedValue: BusinessService())
     }
     
     var body: some View {
@@ -39,6 +45,14 @@ struct ContentView: View {
         }
         .onOpenURL { url in
             handleIncomingURL(url)
+        }
+        .onChange(of: authService.isAuthenticated) { isAuthenticated in
+            print("🔄 Auth state changed in ContentView: \(isAuthenticated)")
+            if isAuthenticated {
+                print("✅ User authenticated - transitioning to main app")
+            } else {
+                print("⚠️ User not authenticated - showing welcome flow")
+            }
         }
     }
     
@@ -95,6 +109,7 @@ struct MainAppView: View {
         .onAppear {
             print("🎯 MainAppView appeared")
             print("• Auth authenticated: \(authService.isAuthenticated)")
+            print("• User: \(authService.currentUser?.displayName ?? "Unknown")")
             print("• eBay authenticated: \(businessService.ebayService.isAuthenticated)")
             if businessService.ebayService.isAuthenticated {
                 print("• Connected user: \(businessService.ebayService.connectedUserName)")

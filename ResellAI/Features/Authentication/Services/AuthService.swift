@@ -2,15 +2,7 @@
 //  AuthService.swift
 //  ResellAI
 //
-//  Created by Alec on 8/15/25.
-//
-
-
-//
-//  AuthService.swift
-//  ResellAI
-//
-//  Authentication Feature - Service
+//  Authentication Feature - Service with Fixed State Updates
 //
 
 import SwiftUI
@@ -23,7 +15,7 @@ import CryptoKit
 import LocalAuthentication
 import GoogleSignIn
 
-// MARK: - AUTHENTICATION SERVICE
+// MARK: - AUTHENTICATION SERVICE (FIXED)
 class AuthService: NSObject, ObservableObject {
     @Published var currentUser: User?
     @Published var isAuthenticated = false
@@ -86,10 +78,16 @@ class AuthService: NSObject, ObservableObject {
     }
     
     private func handleAuthenticatedUser(_ user: FirebaseAuth.User) {
+        print("🔄 Handling authenticated user: \(user.uid)")
+        
+        // Set authentication state immediately
         isAuthenticated = true
         isLoading = false
+        authError = nil
         
-        // Load user data from Firestore
+        print("✅ Authentication state updated - isAuthenticated: \(isAuthenticated)")
+        
+        // Load user data from Firestore (this can fail without affecting auth state)
         loadUserData(userId: user.uid) { [weak self] userData in
             DispatchQueue.main.async {
                 if let userData = userData {
@@ -97,20 +95,22 @@ class AuthService: NSObject, ObservableObject {
                     self?.isFaceIDEnabled = userData.hasFaceIDEnabled
                     self?.monthlyAnalysisCount = userData.monthlyAnalysisCount
                     self?.monthlyListingCount = userData.monthlyListingCount
+                    print("✅ User data loaded from Firestore: \(userData.displayName ?? "Unknown")")
                 } else {
                     // Create new user record
                     let newUser = User(from: user)
                     self?.currentUser = newUser
                     self?.createUserDocument(newUser)
+                    print("✅ New user created: \(newUser.displayName ?? "Unknown")")
                 }
                 
                 self?.loadMonthlyUsage()
-                print("✅ User loaded: \(self?.currentUser?.displayName ?? "Unknown")")
             }
         }
     }
     
     private func handleSignedOutUser() {
+        print("🔄 Handling signed out user")
         currentUser = nil
         isAuthenticated = false
         isLoading = false
@@ -120,6 +120,7 @@ class AuthService: NSObject, ObservableObject {
         canCreateListing = true
         authError = nil
         isFaceIDEnabled = false
+        print("✅ Sign out state updated - isAuthenticated: \(isAuthenticated)")
     }
     
     // MARK: - APPLE SIGN IN
@@ -183,7 +184,8 @@ class AuthService: NSObject, ObservableObject {
                             print("❌ Firebase Google Sign In failed: \(error)")
                         } else {
                             print("✅ Google Sign In successful")
-                            self?.trackUsage(action: "google_sign_in")
+                            // Track usage but don't let it fail the auth flow
+                            self?.trackUsageQuietly(action: "google_sign_in")
                         }
                     }
                 }
@@ -208,7 +210,7 @@ class AuthService: NSObject, ObservableObject {
                     print("❌ Email sign in failed: \(errorMessage)")
                 } else {
                     print("✅ Email sign in successful")
-                    self?.trackUsage(action: "email_sign_in")
+                    self?.trackUsageQuietly(action: "email_sign_in")
                     completion(true, nil)
                 }
             }
@@ -231,7 +233,7 @@ class AuthService: NSObject, ObservableObject {
                     print("❌ Account creation failed: \(errorMessage)")
                 } else {
                     print("✅ Account created successfully")
-                    self?.trackUsage(action: "account_created")
+                    self?.trackUsageQuietly(action: "account_created")
                     completion(true, nil)
                 }
             }
@@ -423,24 +425,29 @@ class AuthService: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - USAGE TRACKING & LIMITS
+    // MARK: - USAGE TRACKING & LIMITS (FIXED TO NOT BLOCK AUTH)
+    
+    // Public method that handles errors gracefully
     func trackUsage(action: String, metadata: [String: String] = [:]) {
         guard let user = currentUser else { return }
         
         print("📊 Tracking usage: \(action)")
         
-        // Update local counts
-        if action == "analysis" {
-            monthlyAnalysisCount += 1
-            updateAnalysisLimit()
-            updateUserUsageCount()
-        } else if action == "listing_created" {
-            monthlyListingCount += 1
-            updateListingLimit()
-            updateUserUsageCount()
-        }
+        // Update local counts first (immediate)
+        updateLocalUsage(action: action)
         
-        // Save usage record to Firestore
+        // Save to Firestore (can fail without blocking)
+        saveUsageToFirestore(action: action, metadata: metadata, userId: user.id)
+    }
+    
+    // Quiet version that doesn't log errors (for auth flows)
+    private func trackUsageQuietly(action: String, metadata: [String: String] = [:]) {
+        guard let user = currentUser else { return }
+        
+        // Update local counts
+        updateLocalUsage(action: action)
+        
+        // Try to save to Firestore silently
         let usageData: [String: Any] = [
             "id": UUID().uuidString,
             "userId": user.id,
@@ -450,9 +457,40 @@ class AuthService: NSObject, ObservableObject {
             "metadata": metadata
         ]
         
+        db.collection("usage").document(UUID().uuidString).setData(usageData) { _ in
+            // Silently ignore errors during auth flows
+        }
+    }
+    
+    private func updateLocalUsage(action: String) {
+        DispatchQueue.main.async {
+            if action == "analysis" {
+                self.monthlyAnalysisCount += 1
+                self.updateAnalysisLimit()
+            } else if action == "listing_created" {
+                self.monthlyListingCount += 1
+                self.updateListingLimit()
+            }
+        }
+        
+        // Update Firestore user document
+        updateUserUsageCount()
+    }
+    
+    private func saveUsageToFirestore(action: String, metadata: [String: String], userId: String) {
+        let usageData: [String: Any] = [
+            "id": UUID().uuidString,
+            "userId": userId,
+            "action": action,
+            "timestamp": Timestamp(date: Date()),
+            "month": getCurrentMonth(),
+            "metadata": metadata
+        ]
+        
         db.collection("usage").document(UUID().uuidString).setData(usageData) { error in
             if let error = error {
                 print("❌ Error saving usage to Firestore: \(error)")
+                print("⚠️ This may be due to Firestore security rules. Usage tracking will continue locally.")
             } else {
                 print("✅ Usage saved to Firestore: \(action)")
             }
@@ -469,6 +507,7 @@ class AuthService: NSObject, ObservableObject {
         ]) { error in
             if let error = error {
                 print("❌ Error updating usage count: \(error)")
+                print("⚠️ This may be due to Firestore security rules.")
             } else {
                 print("✅ Usage count updated in Firestore")
             }
@@ -710,7 +749,7 @@ extension AuthService: ASAuthorizationControllerDelegate {
                         print("❌ Apple Sign In failed: \(errorMessage)")
                     } else {
                         print("✅ Apple Sign In successful")
-                        self?.trackUsage(action: "apple_sign_in")
+                        self?.trackUsageQuietly(action: "apple_sign_in")
                     }
                 }
             }

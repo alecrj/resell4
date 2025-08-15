@@ -2,7 +2,7 @@
 //  AuthViews.swift
 //  ResellAI
 //
-//  Authentication Feature - Views
+//  Authentication Feature - Views with Debug Info
 //
 
 import SwiftUI
@@ -24,6 +24,12 @@ struct WelcomeFlow: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: currentStep)
+        .onAppear {
+            print("🎯 WelcomeFlow appeared - isAuthenticated: \(authService.isAuthenticated)")
+        }
+        .onChange(of: authService.isAuthenticated) { isAuthenticated in
+            print("🔄 WelcomeFlow detected auth change: \(isAuthenticated)")
+        }
     }
 }
 
@@ -152,7 +158,7 @@ struct WalkthroughStep: View {
     }
 }
 
-// MARK: - AUTH SCREEN
+// MARK: - AUTH SCREEN (WITH DEBUG INFO)
 struct AuthScreen: View {
     @EnvironmentObject var authService: AuthService
     
@@ -170,9 +176,47 @@ struct AuthScreen: View {
                     .foregroundColor(DesignSystem.secondary)
             }
             
+            // Debug info
+            VStack(spacing: 4) {
+                Text("Debug Info:")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                
+                Text("isAuthenticated: \(authService.isAuthenticated ? "YES" : "NO")")
+                    .font(.caption)
+                    .foregroundColor(authService.isAuthenticated ? .green : .red)
+                
+                Text("isLoading: \(authService.isLoading ? "YES" : "NO")")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                
+                if let user = authService.currentUser {
+                    Text("User: \(user.displayName ?? "Unknown")")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                } else {
+                    Text("User: None")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+                
+                if let error = authService.authError {
+                    Text("Error: \(error)")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                }
+            }
+            .padding()
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(8)
+            .padding(.horizontal)
+            
             VStack(spacing: DesignSystem.spacing2) {
                 // Apple Sign In
-                Button(action: { authService.signInWithApple() }) {
+                Button(action: {
+                    print("🍎 Apple Sign In button tapped")
+                    authService.signInWithApple()
+                }) {
                     HStack {
                         Image(systemName: "applelogo")
                             .font(.system(size: 18, weight: .semibold))
@@ -188,7 +232,10 @@ struct AuthScreen: View {
                 }
                 
                 // Google Sign In
-                Button(action: { authService.signInWithGoogle() }) {
+                Button(action: {
+                    print("🔍 Google Sign In button tapped")
+                    authService.signInWithGoogle()
+                }) {
                     HStack {
                         Image(systemName: "globe")
                             .font(.system(size: 18, weight: .semibold))
@@ -202,6 +249,17 @@ struct AuthScreen: View {
                     .background(DesignSystem.tertiary)
                     .cornerRadius(DesignSystem.buttonRadius)
                 }
+                
+                // Test button to force state change
+                Button("🔄 Test Auth State") {
+                    print("📊 Current Auth State:")
+                    print("• isAuthenticated: \(authService.isAuthenticated)")
+                    print("• isLoading: \(authService.isLoading)")
+                    print("• currentUser: \(authService.currentUser?.displayName ?? "nil")")
+                    print("• authError: \(authService.authError ?? "nil")")
+                }
+                .font(.caption)
+                .foregroundColor(.blue)
             }
             .padding(.horizontal, DesignSystem.spacing3)
             
@@ -225,5 +283,13 @@ struct AuthScreen: View {
                 }
             }
         )
+        .onAppear {
+            print("🎯 AuthScreen appeared")
+            print("• isAuthenticated: \(authService.isAuthenticated)")
+            print("• isLoading: \(authService.isLoading)")
+        }
+        .onChange(of: authService.isAuthenticated) { isAuthenticated in
+            print("🔄 AuthScreen detected auth change: \(isAuthenticated)")
+        }
     }
 }
