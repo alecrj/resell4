@@ -56,20 +56,7 @@ struct ContentView: View {
         if url.scheme == "resellai" && url.host == "auth" {
             if url.path.contains("ebay") || url.absoluteString.contains("ebay") {
                 print("🔗 Handling eBay Auth callback")
-                print("🔍 Full eBay callback URL: \(url.absoluteString)")
-                
-                // Parse query parameters for debugging
-                let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-                if let queryItems = components?.queryItems {
-                    print("🔍 eBay callback parameters:")
-                    for item in queryItems {
-                        print("   • \(item.name): \(item.value ?? "nil")")
-                    }
-                }
-                
-                // Handle the callback
                 businessService.handleEbayAuthCallback(url: url)
-                
             } else {
                 print("⚠️ Unknown auth callback: \(url)")
             }
@@ -79,7 +66,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - MAIN APP VIEW
+// MARK: - MAIN APP VIEW (FIXED)
 struct MainAppView: View {
     @EnvironmentObject var firebaseService: FirebaseService
     @EnvironmentObject var businessService: BusinessService
@@ -87,8 +74,10 @@ struct MainAppView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            if !businessService.isEbayAuthenticated {
+            // FIXED: Check the correct property and force UI refresh
+            if !businessService.ebayService.isAuthenticated {
                 EbayConnectView()
+                    .environmentObject(businessService)
             } else {
                 MainCameraView()
             }
@@ -99,18 +88,22 @@ struct MainAppView: View {
         .onAppear {
             print("🎯 MainAppView appeared")
             print("• Firebase authenticated: \(firebaseService.isAuthenticated)")
-            print("• eBay authenticated: \(businessService.isEbayAuthenticated)")
-            if businessService.isEbayAuthenticated {
+            print("• eBay authenticated: \(businessService.ebayService.isAuthenticated)")
+            if businessService.ebayService.isAuthenticated {
                 print("• Connected user: \(businessService.ebayService.connectedUserName)")
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("EbayAuthCompleted"))) { _ in
-            print("📱 Received eBay auth completion notification")
+        // FIXED: Force UI refresh when eBay auth state changes
+        .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
+            print("🔄 eBay auth state changed: \(isAuthenticated)")
+            if isAuthenticated {
+                print("✅ eBay connected - transitioning to main camera view")
+            }
         }
     }
 }
 
-// MARK: - MAIN CAMERA VIEW
+// MARK: - MAIN CAMERA VIEW (Renamed from CameraView to avoid confusion)
 struct MainCameraView: View {
     @EnvironmentObject var businessService: BusinessService
     @EnvironmentObject var firebaseService: FirebaseService
@@ -136,14 +129,14 @@ struct MainCameraView: View {
                 
                 Spacer()
                 
-                // eBay status indicator
+                // eBay status indicator (FIXED: Use correct property)
                 Button(action: { showingEbayStatus = true }) {
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(businessService.isEbayAuthenticated ? Color.green : Color.red)
+                            .fill(businessService.ebayService.isAuthenticated ? Color.green : Color.red)
                             .frame(width: 8, height: 8)
                         
-                        if businessService.isEbayAuthenticated {
+                        if businessService.ebayService.isAuthenticated {
                             Text(businessService.ebayService.connectedUserName.isEmpty ? "eBay" : businessService.ebayService.connectedUserName)
                                 .font(DesignSystem.captionFont)
                                 .foregroundColor(DesignSystem.secondary)

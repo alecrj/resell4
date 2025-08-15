@@ -2,7 +2,7 @@
 //  EbayService.swift
 //  ResellAI
 //
-//  Complete eBay OAuth 2.0 Integration - FIXED VERSION
+//  Fixed eBay OAuth 2.0 with proper UI state updates
 //
 
 import SwiftUI
@@ -10,7 +10,7 @@ import Foundation
 import CryptoKit
 import SafariServices
 
-// MARK: - FIXED EBAY SERVICE WITH PROPER OAUTH 2.0
+// MARK: - FIXED EBAY SERVICE WITH PROPER UI UPDATES
 class EbayService: NSObject, ObservableObject {
     @Published var isAuthenticated = false
     @Published var authStatus = "Not Connected"
@@ -78,17 +78,19 @@ class EbayService: NSObject, ObservableObject {
             print("✅ Valid eBay access token found")
             print("• Token expires: \(expiry)")
             
-            isAuthenticated = true
-            authStatus = "Connected"
-            connectedUserName = UserDefaults.standard.string(forKey: userNameKey) ?? ""
-            connectedUserId = UserDefaults.standard.string(forKey: userIdKey) ?? ""
-            
-            if connectedUserName.isEmpty {
-                print("👤 Fetching eBay user info...")
-                fetchUserInfo()
-            } else {
-                print("👤 Connected as: \(connectedUserName)")
-                authStatus = "Connected as \(connectedUserName)"
+            DispatchQueue.main.async {
+                self.isAuthenticated = true
+                self.authStatus = "Connected"
+                self.connectedUserName = UserDefaults.standard.string(forKey: self.userNameKey) ?? ""
+                self.connectedUserId = UserDefaults.standard.string(forKey: self.userIdKey) ?? ""
+                
+                if self.connectedUserName.isEmpty {
+                    print("👤 Fetching eBay user info...")
+                    self.fetchUserInfo()
+                } else {
+                    print("👤 Connected as: \(self.connectedUserName)")
+                    self.authStatus = "Connected as \(self.connectedUserName)"
+                }
             }
         } else {
             print("⚠️ No valid eBay tokens - user needs to authenticate")
@@ -221,14 +223,19 @@ class EbayService: NSObject, ObservableObject {
         return url
     }
     
-    // MARK: - HANDLE OAUTH CALLBACK FROM WEB BRIDGE
+    // MARK: - HANDLE OAUTH CALLBACK FROM WEB BRIDGE (FIXED UI UPDATES)
     func handleAuthCallback(url: URL, completion: ((Bool) -> Void)? = nil) {
         print("📞 Processing eBay OAuth 2.0 callback: \(url)")
         print("📋 Full callback URL: \(url.absoluteString)")
         
-        // Close Safari view controller if still open
+        // FIXED: Close Safari view controller immediately on main thread
         DispatchQueue.main.async {
-            self.safariViewController?.dismiss(animated: true)
+            if let safari = self.safariViewController {
+                safari.dismiss(animated: true) {
+                    print("✅ Safari view dismissed")
+                }
+                self.safariViewController = nil
+            }
         }
         
         let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -297,19 +304,23 @@ class EbayService: NSObject, ObservableObject {
         exchangeCodeForTokens(code: code) { [weak self] success in
             DispatchQueue.main.async {
                 if success {
+                    // FIXED: Update UI state immediately
                     self?.isAuthenticated = true
                     self?.authStatus = "Connected"
                     print("🎉 eBay OAuth 2.0 authentication successful!")
                     
                     // Fetch user info to get username
                     self?.fetchUserInfo()
+                    
+                    // Call completion immediately
+                    self?.authCompletion?(true)
+                    completion?(true)
                 } else {
                     self?.authStatus = "Token exchange failed"
                     print("❌ eBay OAuth 2.0 authentication failed")
+                    self?.authCompletion?(false)
+                    completion?(false)
                 }
-                
-                self?.authCompletion?(success)
-                completion?(success)
             }
         }
     }
@@ -422,7 +433,7 @@ class EbayService: NSObject, ObservableObject {
         }.resume()
     }
     
-    // MARK: - USER INFO FETCHING
+    // MARK: - USER INFO FETCHING (FIXED UI UPDATES)
     private func fetchUserInfo() {
         guard let accessToken = accessToken else {
             print("❌ No access token for user info")
@@ -723,7 +734,7 @@ struct EbayUser: Codable {
     let registrationDate: String
 }
 
-// MARK: - SAFARI VIEW CONTROLLER DELEGATE
+// MARK: - SAFARI VIEW CONTROLLER DELEGATE (FIXED)
 extension EbayService: SFSafariViewControllerDelegate {
     func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
         print("📱 User cancelled eBay OAuth")
