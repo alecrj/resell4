@@ -2,17 +2,17 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Enhanced Main App with Expert AI Integration
+//  Main App with AI Integration
 //
 
 import SwiftUI
 import PhotosUI
 import AVFoundation
 
-// MARK: - ENHANCED MAIN CONTENT VIEW
+// MARK: - MAIN CONTENT VIEW
 struct ContentView: View {
     @StateObject private var firebaseService = FirebaseService()
-    @StateObject private var inventoryManager = InventoryManager()
+    @StateObject private var inventoryService = InventoryService()
     @StateObject private var businessService = BusinessService()
     
     // Directly observe the authService to ensure proper state updates
@@ -22,7 +22,7 @@ struct ContentView: View {
         let firebase = FirebaseService()
         self._firebaseService = StateObject(wrappedValue: firebase)
         self.authService = firebase.authService
-        self._inventoryManager = StateObject(wrappedValue: InventoryManager())
+        self._inventoryService = StateObject(wrappedValue: InventoryService())
         self._businessService = StateObject(wrappedValue: BusinessService())
     }
     
@@ -30,18 +30,18 @@ struct ContentView: View {
         Group {
             if authService.isAuthenticated {
                 if businessService.ebayService.isAuthenticated {
-                    // ✅ SHOW ENHANCED CAMERA APP WITH EXPERT AI
-                    EnhancedMainCameraView()
+                    // ✅ SHOW MAIN CAMERA APP WITH AI
+                    MainCameraView()
                         .environmentObject(authService)
                         .environmentObject(firebaseService)
-                        .environmentObject(inventoryManager)
+                        .environmentObject(inventoryService)
                         .environmentObject(businessService)
                 } else {
                     // Show eBay connection flow
                     EbayConnectView()
                         .environmentObject(authService)
                         .environmentObject(firebaseService)
-                        .environmentObject(inventoryManager)
+                        .environmentObject(inventoryService)
                         .environmentObject(businessService)
                 }
             } else {
@@ -51,7 +51,7 @@ struct ContentView: View {
         }
         .preferredColorScheme(.light)
         .onAppear {
-            initializeEnhancedServices()
+            initializeServices()
         }
         .onOpenURL { url in
             handleIncomingURL(url)
@@ -62,18 +62,18 @@ struct ContentView: View {
         .onChange(of: businessService.ebayService.isAuthenticated) { isAuthenticated in
             print("🔄 eBay auth state changed in ContentView: \(isAuthenticated)")
             if isAuthenticated {
-                print("✅ eBay connected - showing enhanced camera view")
+                print("✅ eBay connected - showing camera view")
                 businessService.objectWillChange.send()
             }
         }
     }
     
-    private func initializeEnhancedServices() {
-        print("🚀 Initializing Enhanced ResellAI services...")
+    private func initializeServices() {
+        print("🚀 Initializing ResellAI services...")
         Configuration.validateConfiguration()
         businessService.initialize(with: firebaseService)
-        inventoryManager.initialize(with: firebaseService)
-        print("✅ Enhanced services initialized")
+        inventoryService.initialize(with: firebaseService)
+        print("✅ Services initialized")
     }
     
     private func handleIncomingURL(_ url: URL) {
@@ -94,8 +94,8 @@ struct ContentView: View {
     }
 }
 
-// MARK: - ENHANCED MAIN CAMERA VIEW WITH EXPERT AI
-struct EnhancedMainCameraView: View {
+// MARK: - MAIN CAMERA VIEW WITH AI
+struct MainCameraView: View {
     @EnvironmentObject var businessService: BusinessService
     @EnvironmentObject var authService: AuthService
     
@@ -112,8 +112,8 @@ struct EnhancedMainCameraView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Enhanced header with expert AI branding
-            enhancedHeader
+            // Header with AI branding
+            header
             
             // Main content area
             if capturedImages.isEmpty && !showingProcessing && analysisResult == nil {
@@ -132,10 +132,10 @@ struct EnhancedMainCameraView: View {
                     onLibrary: { showingPhotoLibrary = true }
                 )
             } else if showingProcessing {
-                // Enhanced processing state
+                // Processing state
                 ProcessingView()
             } else if let result = analysisResult {
-                // Enhanced results state
+                // Results state
                 ReviewListingView(
                     result: result,
                     images: capturedImages,
@@ -143,7 +143,7 @@ struct EnhancedMainCameraView: View {
                     onPostListing: postToEbay
                 )
             } else {
-                // Enhanced photo preview state
+                // Photo preview state
                 PhotoPreviewView(
                     images: capturedImages,
                     onAnalyze: analyzePhotos,
@@ -196,8 +196,8 @@ struct EnhancedMainCameraView: View {
         }
     }
     
-    // MARK: - Enhanced Header
-    private var enhancedHeader: some View {
+    // MARK: - Header
+    private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
@@ -205,11 +205,11 @@ struct EnhancedMainCameraView: View {
                         .font(DesignSystem.titleFont)
                         .foregroundColor(DesignSystem.primary)
                     
-                    // Expert AI badge
+                    // AI badge
                     HStack(spacing: 4) {
                         Image(systemName: "brain.head.profile")
                             .font(.system(size: 12))
-                        Text("Expert AI")
+                        Text("AI")
                             .font(.caption)
                             .fontWeight(.medium)
                     }
@@ -241,7 +241,7 @@ struct EnhancedMainCameraView: View {
                     }
                 }
                 
-                // Enhanced usage indicator
+                // Usage indicator
                 if let user = authService.currentUser {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text("\(authService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
@@ -292,24 +292,24 @@ struct EnhancedMainCameraView: View {
     
     private func analyzePhotos() {
         guard authService.canAnalyze else {
-            errorMessage = "Monthly analysis limit reached. Upgrade for unlimited expert analysis."
+            errorMessage = "Monthly analysis limit reached. Upgrade for unlimited AI analysis."
             showingError = true
             return
         }
         
         showingProcessing = true
         
-        // Track that we're using expert AI
-        print("🧠 Starting Expert AI Analysis with \(capturedImages.count) images")
+        // Track that we're using AI
+        print("🧠 Starting AI Analysis with \(capturedImages.count) images")
         
         businessService.analyzeItem(capturedImages) { result in
             DispatchQueue.main.async {
                 showingProcessing = false
                 if let result = result {
                     analysisResult = result
-                    print("✅ Expert AI analysis complete: \(result.name)")
+                    print("✅ AI analysis complete: \(result.name)")
                 } else {
-                    errorMessage = "Expert AI analysis failed. Please try again with clearer photos."
+                    errorMessage = "AI analysis failed. Please try again with clearer photos."
                     showingError = true
                 }
             }
@@ -330,12 +330,12 @@ struct EnhancedMainCameraView: View {
             return
         }
         
-        print("📤 Creating eBay listing from Expert AI analysis")
+        print("📤 Creating eBay listing from AI analysis")
         
         businessService.createEbayListing(from: result, images: capturedImages) { success, error in
             DispatchQueue.main.async {
                 if success {
-                    print("🎉 Expert AI to eBay listing success!")
+                    print("🎉 AI to eBay listing success!")
                     resetToCamera()
                 } else {
                     errorMessage = error ?? "Failed to create eBay listing"

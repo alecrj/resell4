@@ -2,24 +2,18 @@
 //  Configuration.swift
 //  ResellAI
 //
-//  Enhanced Configuration with Expert AI Settings
+//  Configuration with AI Settings
 //
 
 import Foundation
 
-// MARK: - Enhanced Configuration with Expert AI
+// MARK: - Configuration with AI
 struct Configuration {
     
     // MARK: - API Keys from Environment Variables
     static let openAIKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
     
-    static let googleScriptURL = ProcessInfo.processInfo.environment["GOOGLE_SCRIPT_URL"] ?? ""
-    
     static let rapidAPIKey = ProcessInfo.processInfo.environment["RAPID_API_KEY"] ?? ""
-    
-    static let spreadsheetID = ProcessInfo.processInfo.environment["SPREADSHEET_ID"] ?? ""
-    
-    static let googleCloudAPIKey = ProcessInfo.processInfo.environment["GOOGLE_CLOUD_API_KEY"] ?? ""
     
     // ✅ KEEP YOUR WORKING EBAY CREDENTIALS (WITH ENV FALLBACKS)
     static let ebayAPIKey = ProcessInfo.processInfo.environment["EBAY_API_KEY"] ?? "AlecRodr-resell-PRD-d0bc91504-be3e553a"
@@ -27,7 +21,7 @@ struct Configuration {
     static let ebayDevId = ProcessInfo.processInfo.environment["EBAY_DEV_ID"] ?? "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
     static let ebayEnvironment = "PRODUCTION"
     
-    // ✅ KEEP YOUR WORKING OAUTH REDIRECT URIS
+    // ✅ CORRECT OAUTH REDIRECT URIS - USING YOUR DOMAIN
     static let ebayRedirectURI = ProcessInfo.processInfo.environment["EBAY_REDIRECT_URI"] ?? "https://resellaiapp.com/ebay-callback.html"
     static let ebayAppScheme = "resellai://auth/ebay"
     static let ebayRuName = ProcessInfo.processInfo.environment["EBAY_RU_NAME"] ?? "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
@@ -66,10 +60,10 @@ struct Configuration {
     static let defaultEbayFeeRate = 0.1325
     static let defaultPayPalFeeRate = 0.0349
     
-    // MARK: - Enhanced AI Configuration
-    static let expertAIModel = "gpt-4o-2024-11-20" // Latest GPT-4o for expert analysis
-    static let expertAIMaxTokens = 2000 // Increased for detailed analysis
-    static let expertAITemperature = 0.1 // Low temperature for consistent pricing
+    // MARK: - AI Configuration
+    static let aiModel = "gpt-5-nano" // Fast, cost-efficient AI model
+    static let aiMaxTokens = 2000 // Tokens for detailed analysis
+    static let aiTemperature = 0.1 // Low temperature for consistent pricing
     
     // MARK: - Business Rules
     static let minimumROIThreshold = 50.0
@@ -98,7 +92,7 @@ struct Configuration {
     static let openAIMaxTokens = 4000
     static let rapidAPICallsPerMinute = 100
     
-    // MARK: - Configuration Validation (ENHANCED)
+    // MARK: - Configuration Validation
     static var isFullyConfigured: Bool {
         return !openAIKey.isEmpty &&
                !ebayAPIKey.isEmpty &&
@@ -111,13 +105,13 @@ struct Configuration {
                !ebayDevId.isEmpty
     }
     
-    static var isExpertAIReady: Bool {
+    static var isAIReady: Bool {
         return !openAIKey.isEmpty && openAIKey.count > 20
     }
     
     static var configurationStatus: String {
         if isFullyConfigured {
-            return "Expert AI Ready - All systems operational"
+            return "AI Ready - All systems operational"
         } else {
             var missing: [String] = []
             if openAIKey.isEmpty { missing.append("OpenAI") }
@@ -128,15 +122,15 @@ struct Configuration {
         }
     }
     
-    // MARK: - Enhanced Development Helpers
+    // MARK: - Development Helpers
     static func validateConfiguration() {
-        print("🔧 ResellAI Enhanced Configuration Status:")
-        print("✅ OpenAI (Expert AI): \(openAIKey.isEmpty ? "❌ Missing" : "✅ Configured")")
+        print("🔧 ResellAI Configuration Status:")
+        print("✅ OpenAI (AI Analysis): \(openAIKey.isEmpty ? "❌ Missing" : "✅ Configured")")
         
-        if isExpertAIReady {
-            print("🧠 Expert AI Model: \(expertAIModel)")
-            print("🎯 AI Max Tokens: \(expertAIMaxTokens)")
-            print("🌡️ AI Temperature: \(expertAITemperature)")
+        if isAIReady {
+            print("🧠 AI Model: \(aiModel)")
+            print("🎯 AI Max Tokens: \(aiMaxTokens)")
+            print("🌡️ AI Temperature: \(aiTemperature)")
         }
         
         print("✅ eBay API Key: \(ebayAPIKey.isEmpty ? "❌ Missing" : "✅ \(ebayAPIKey)")")
@@ -149,13 +143,13 @@ struct Configuration {
         print("✅ Environment: \(ebayEnvironment)")
         print("📊 Overall Status: \(configurationStatus)")
         
-        if isExpertAIReady {
-            print("\n🧠 Expert AI Analysis Ready!")
-            print("• Model: \(expertAIModel)")
-            print("• Max Tokens: \(expertAIMaxTokens)")
-            print("• Temperature: \(expertAITemperature)")
+        if isAIReady {
+            print("\n🧠 AI Analysis Ready!")
+            print("• Model: \(aiModel)")
+            print("• Max Tokens: \(aiMaxTokens)")
+            print("• Temperature: \(aiTemperature)")
             print("• Features: Market intelligence, rarity assessment, hype analysis")
-            print("• Accuracy: Expert-level product identification and pricing")
+            print("• Accuracy: Professional-level product identification and pricing")
         }
         
         if isEbayConfigured {
@@ -177,15 +171,15 @@ struct Configuration {
         }
         
         if isFullyConfigured {
-            print("\n🚀 ResellAI Ultimate Configuration Complete!")
-            print("• Expert AI: ✅ Ready for professional-grade analysis")
+            print("\n🚀 ResellAI Configuration Complete!")
+            print("• AI: ✅ Ready for professional-grade analysis")
             print("• eBay Integration: ✅ Production OAuth 2.0 ready")
             print("• Auto-listing: ✅ Photos to eBay listings automatically")
             print("• Market Intelligence: ✅ Rarity, hype, and pricing analysis")
         }
     }
     
-    // MARK: - eBay Category Mappings (ENHANCED)
+    // MARK: - eBay Category Mappings
     static let ebayCategoryMappings: [String: String] = [
         "Sneakers": "15709",
         "Shoes": "15709",
@@ -226,7 +220,7 @@ struct Configuration {
         "Other": "99"
     ]
     
-    // MARK: - eBay Condition Mappings (ENHANCED)
+    // MARK: - eBay Condition Mappings
     static let ebayConditionMappings: [String: String] = [
         "New with tags": "NEW_WITH_TAGS",
         "New without tags": "NEW_WITHOUT_TAGS",
@@ -243,8 +237,8 @@ struct Configuration {
         "For parts or not working": "FOR_PARTS_OR_NOT_WORKING"
     ]
     
-    // MARK: - Expert AI Categories (NEW)
-    static let expertAICategories = [
+    // MARK: - AI Categories
+    static let aiCategories = [
         "Sneakers & Footwear",
         "Streetwear & Fashion",
         "Electronics & Tech",
@@ -257,7 +251,7 @@ struct Configuration {
         "Art & Antiques"
     ]
     
-    // MARK: - Hype Brand Recognition (NEW)
+    // MARK: - Hype Brand Recognition
     static let hypeBrands = [
         "Off-White", "Supreme", "Fear of God", "Stone Island", "Yeezy",
         "Travis Scott", "Fragment", "Kaws", "Virgil Abloh", "Palace",

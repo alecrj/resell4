@@ -2,7 +2,7 @@
 //  BusinessService.swift
 //  ResellAI
 //
-//  Enhanced Business Service with Expert-Level AI Analysis
+//  Business Service with AI Analysis
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ import FirebaseFirestore
 import CryptoKit
 import SafariServices
 
-// MARK: - ENHANCED BUSINESS SERVICE WITH EXPERT AI
+// MARK: - BUSINESS SERVICE WITH AI
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -28,14 +28,12 @@ class BusinessService: ObservableObject {
     @Published var queueProgress = "Queue Ready"
     @Published var queueProgressValue: Double = 0.0
     
-    // Enhanced AI service
+    // AI service
     private let aiService = AIAnalysisService()
     
     // eBay Services
     let ebayService = EbayService()
     private let ebayListingService = EbayListingService()
-    
-    private let googleSheetsService = GoogleSheetsService()
     
     // Firebase integration
     private weak var firebaseService: FirebaseService?
@@ -45,7 +43,7 @@ class BusinessService: ObservableObject {
     private var queueTimer: Timer?
     
     init() {
-        print("🚀 ResellAI Business Service initialized with Enhanced AI Analysis")
+        print("🚀 ResellAI Business Service initialized with AI Analysis")
         loadSavedQueue()
     }
     
@@ -53,11 +51,10 @@ class BusinessService: ObservableObject {
         Configuration.validateConfiguration()
         self.firebaseService = firebaseService
         self.authService = firebaseService?.authService
-        authenticateGoogleSheets()
         ebayService.initialize()
     }
     
-    // MARK: - ENHANCED SINGLE ITEM ANALYSIS
+    // MARK: - SINGLE ITEM ANALYSIS
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             completion(nil)
@@ -71,24 +68,24 @@ class BusinessService: ObservableObject {
             return
         }
         
-        print("🧠 Starting enhanced ResellAI analysis with \(images.count) images")
+        print("🧠 Starting ResellAI analysis with \(images.count) images")
         
         // Track usage in AuthService
         authService?.trackUsage(action: "analysis", metadata: [
             "source": "single_item",
             "image_count": "\(images.count)",
             "timestamp": ISO8601DateFormatter().string(from: Date()),
-            "ai_version": "expert_v2"
+            "ai_version": "v2"
         ])
         
         DispatchQueue.main.async {
             self.isAnalyzing = true
             self.progressValue = 0.1
-            self.analysisProgress = "Analyzing with expert AI..."
+            self.analysisProgress = "Analyzing with AI..."
         }
         
-        // Use enhanced AI analysis that handles both identification and pricing
-        updateProgress("Expert AI analyzing product...", progress: 0.3)
+        // Use AI analysis that handles both identification and pricing
+        updateProgress("AI analyzing product...", progress: 0.3)
         
         aiService.analyzeItemWithMarketIntelligence(images: images) { [weak self] expertResult in
             guard let expertResult = expertResult else {
@@ -110,7 +107,7 @@ class BusinessService: ObservableObject {
                 self?.analysisProgress = "Analysis complete"
                 self?.progressValue = 1.0
                 
-                print("✅ Enhanced AI analysis complete: \(expertResult.exactProductName)")
+                print("✅ AI analysis complete: \(expertResult.exactProductName)")
                 print("💰 Quick Sale: $\(String(format: "%.2f", expertResult.quickSalePrice))")
                 print("💰 Market Price: $\(String(format: "%.2f", expertResult.marketPrice))")
                 print("💰 Patient Sale: $\(String(format: "%.2f", expertResult.patientSalePrice))")
@@ -123,7 +120,7 @@ class BusinessService: ObservableObject {
         }
     }
     
-    // MARK: - ENHANCED QUEUE PROCESSING
+    // MARK: - QUEUE PROCESSING
     func addItemToQueue(photos: [UIImage]) -> UUID {
         let itemId = processingQueue.addItem(photos: photos)
         saveQueue()
@@ -147,7 +144,7 @@ class BusinessService: ObservableObject {
         
         processingQueue.isProcessing = true
         isProcessingQueue = true
-        queueProgress = "Starting enhanced queue processing..."
+        queueProgress = "Starting queue processing..."
         
         print("🔄 Starting queue processing with \(processingQueue.pendingItems.count) pending items")
         
@@ -238,7 +235,7 @@ class BusinessService: ObservableObject {
         
         if let currentId = processingQueue.currentlyProcessing,
            let currentItem = processingQueue.items.first(where: { $0.id == currentId }) {
-            queueProgress = "Expert AI analyzing Item \(currentItem.position)..."
+            queueProgress = "AI analyzing Item \(currentItem.position)..."
         } else if completedItems == totalItems && totalItems > 0 {
             queueProgress = "Queue complete!"
         }
@@ -262,9 +259,9 @@ class BusinessService: ObservableObject {
         processingQueue.currentlyProcessing = nextItem.id
         processingQueue.updateItemStatus(nextItem.id, status: .processing)
         
-        print("🧠 Processing queue item \(nextItem.position) with enhanced AI")
+        print("🧠 Processing queue item \(nextItem.position) with AI")
         
-        // Analyze the item using enhanced AI
+        // Analyze the item using AI
         analyzeQueueItem(nextItem)
     }
     
@@ -281,10 +278,10 @@ class BusinessService: ObservableObject {
             "source": "queue",
             "item_position": "\(item.position)",
             "photo_count": "\(photos.count)",
-            "ai_version": "expert_v2"
+            "ai_version": "v2"
         ])
         
-        // Use enhanced AI analysis
+        // Use AI analysis
         aiService.analyzeItemWithMarketIntelligence(images: photos) { [weak self] expertResult in
             guard let self = self else { return }
             
@@ -292,7 +289,7 @@ class BusinessService: ObservableObject {
                 self.processQueueItemComplete(
                     item.id,
                     result: nil,
-                    error: "Enhanced AI analysis failed",
+                    error: "AI analysis failed",
                     shouldCountAgainstLimit: false
                 )
                 return
@@ -370,7 +367,7 @@ class BusinessService: ObservableObject {
         let completedCount = processingQueue.completedItems.count
         let failedCount = processingQueue.failedItems.count
         
-        queueProgress = "Enhanced AI complete: \(completedCount) analyzed, \(failedCount) failed"
+        queueProgress = "AI complete: \(completedCount) analyzed, \(failedCount) failed"
         queueProgressValue = 1.0
         
         print("✅ Queue processing finished: \(completedCount) completed, \(failedCount) failed")
@@ -384,7 +381,7 @@ class BusinessService: ObservableObject {
     }
     
     private func scheduleCompletionNotification(completedCount: Int) {
-        print("📱 Would send notification: \(completedCount) items analyzed with enhanced AI")
+        print("📱 Would send notification: \(completedCount) items analyzed with AI")
     }
     
     // MARK: - QUEUE PERSISTENCE
@@ -418,7 +415,7 @@ class BusinessService: ObservableObject {
         }
     }
     
-    // MARK: - EBAY INTEGRATION (UNCHANGED)
+    // MARK: - EBAY INTEGRATION
     
     func authenticateEbay(completion: @escaping (Bool) -> Void) {
         ebayService.authenticate(completion: completion)
@@ -471,7 +468,7 @@ class BusinessService: ObservableObject {
         }
         
         print("📤 Creating eBay listing for: \(analysis.name)")
-        print("• Using enhanced AI analysis result")
+        print("• Using AI analysis result")
         
         ebayListingService.createListing(analysis: analysis, images: images, accessToken: accessToken) { [weak self] success, errorMessage in
             if success {
@@ -479,7 +476,7 @@ class BusinessService: ObservableObject {
                     "item_name": analysis.name,
                     "price": String(format: "%.2f", analysis.suggestedPrice),
                     "category": analysis.category,
-                    "ai_version": "expert_v2"
+                    "ai_version": "v2"
                 ])
                 print("✅ eBay listing created successfully")
             }
@@ -500,18 +497,6 @@ class BusinessService: ObservableObject {
         print("📱 Analyzing barcode: \(barcode)")
         updateProgress("Looking up product by barcode...", progress: 0.1)
         analyzeItem(images, completion: completion)
-    }
-    
-    // MARK: - GOOGLE SHEETS INTEGRATION
-    func authenticateGoogleSheets() {
-        googleSheetsService.authenticate()
-    }
-    
-    func syncAllItems(_ items: [InventoryItem]) {
-        googleSheetsService.syncAllItems(items)
-        googleSheetsService.$isSyncing.receive(on: DispatchQueue.main).assign(to: &$isSyncing)
-        googleSheetsService.$syncStatus.receive(on: DispatchQueue.main).assign(to: &$syncStatus)
-        googleSheetsService.$lastSyncDate.receive(on: DispatchQueue.main).assign(to: &$lastSyncDate)
     }
 }
 

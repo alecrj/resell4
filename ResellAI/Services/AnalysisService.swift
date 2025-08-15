@@ -2,7 +2,7 @@
 //  AnalysisService.swift
 //  ResellAI
 //
-//  Enhanced AI Analysis with Expert-Level Market Intelligence
+//  AI Analysis with Market Intelligence
 //
 
 import SwiftUI
@@ -10,7 +10,7 @@ import Foundation
 import Vision
 import FirebaseFirestore
 
-// MARK: - ENHANCED AI ANALYSIS SERVICE
+// MARK: - AI ANALYSIS SERVICE
 class AIAnalysisService: ObservableObject {
     private let apiKey = Configuration.openAIKey
     private let endpoint = Configuration.openAIEndpoint
@@ -35,7 +35,7 @@ class AIAnalysisService: ObservableObject {
             return
         }
         
-        print("🧠 Starting expert-level analysis with \(compressedImages.count) images")
+        print("🧠 Starting AI analysis with \(compressedImages.count) images")
         
         var content: [[String: Any]] = [
             [
@@ -55,15 +55,15 @@ class AIAnalysisService: ObservableObject {
         }
         
         let requestBody: [String: Any] = [
-            "model": "gpt-4o-2024-11-20", // Latest GPT-4o model
+            "model": Configuration.aiModel,
             "messages": [
                 [
                     "role": "user",
                     "content": content
                 ]
             ],
-            "max_tokens": 2000,
-            "temperature": 0.1
+            "max_tokens": Configuration.aiMaxTokens,
+            "temperature": Configuration.aiTemperature
         ]
         
         performExpertAnalysis(requestBody: requestBody, completion: completion)
@@ -224,12 +224,12 @@ class AIAnalysisService: ObservableObject {
                 let cleanedContent = cleanJSONResponse(content)
                 
                 if let result = parseExpertJSON(cleanedContent) {
-                    print("✅ Expert analysis complete: \(result.exactProductName)")
+                    print("✅ AI analysis complete: \(result.exactProductName)")
                     print("💰 Market Price: $\(String(format: "%.2f", result.marketPrice))")
                     print("🎯 Reasoning: \(result.priceReasoning)")
                     completion(result)
                 } else {
-                    print("❌ Failed to parse expert analysis")
+                    print("❌ Failed to parse AI analysis")
                     completion(createFallbackAnalysis(from: content))
                 }
             } else {
@@ -280,7 +280,7 @@ class AIAnalysisService: ObservableObject {
                 
                 let priceReasoning = json["price_reasoning"] as? String ?? "Market analysis based on similar items"
                 let authenticityConfidence = json["authenticity_confidence"] as? String ?? "Medium"
-                let keySellингPoints = json["key_selling_points"] as? [String] ?? []
+                let keySellingPoints = json["key_selling_points"] as? [String] ?? []
                 let conditionNotes = json["condition_notes"] as? [String] ?? []
                 let sourcingAdvice = json["sourcing_advice"] as? String ?? "Research similar items"
                 let listingTitle = json["listing_title"] as? String ?? exactProductName
@@ -305,7 +305,7 @@ class AIAnalysisService: ObservableObject {
                     patientSalePrice: patientSalePrice,
                     priceReasoning: priceReasoning,
                     authenticityConfidence: authenticityConfidence,
-                    keySellingPoints: keySellințPoints,
+                    keySellingPoints: keySellingPoints,
                     conditionNotes: conditionNotes,
                     sourcingAdvice: sourcingAdvice,
                     listingTitle: listingTitle,
