@@ -2,12 +2,12 @@
 //  Configuration.swift
 //  ResellAI
 //
-//  Complete API Configuration with Production eBay Credentials
+//  Safe Configuration Update - Environment Variables + Fallbacks
 //
 
 import Foundation
 
-// MARK: - Complete App Configuration with Environment Variables
+// MARK: - Safe Configuration with Environment Variables
 struct Configuration {
     
     // MARK: - API Keys from Environment Variables
@@ -21,16 +21,21 @@ struct Configuration {
     
     static let googleCloudAPIKey = ProcessInfo.processInfo.environment["GOOGLE_CLOUD_API_KEY"] ?? ""
     
-    // MARK: - eBay OAuth 2.0 Configuration (PRODUCTION - FROM USER'S CREDENTIALS)
-    static let ebayAPIKey = "AlecRodr-resell-PRD-d0bc91504-be3e553a"
-    static let ebayClientSecret = "PRD-0bc91504af12-57f0-49aa-8bb7-763a"
-    static let ebayDevId = "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
+    // ✅ KEEP YOUR WORKING EBAY CREDENTIALS (WITH ENV FALLBACKS)
+    static let ebayAPIKey = ProcessInfo.processInfo.environment["EBAY_API_KEY"] ?? "AlecRodr-resell-PRD-d0bc91504-be3e553a"
+    static let ebayClientSecret = ProcessInfo.processInfo.environment["EBAY_CLIENT_SECRET"] ?? "PRD-0bc91504af12-57f0-49aa-8bb7-763a"
+    static let ebayDevId = ProcessInfo.processInfo.environment["EBAY_DEV_ID"] ?? "7b77d928-4c43-4d2c-ad86-a0ea503437ae"
     static let ebayEnvironment = "PRODUCTION"
     
-    // eBay OAuth endpoints and redirect URI - FIXED TO MATCH EBAY DEVELOPER SETTINGS
-    static let ebayRedirectURI = "https://resellaiapp.com/ebay-callback.html"
+    // ✅ KEEP YOUR WORKING OAUTH REDIRECT URIS
+    static let ebayRedirectURI = ProcessInfo.processInfo.environment["EBAY_REDIRECT_URI"] ?? "https://resellai-auth.vercel.app/ebay-callback"
     static let ebayAppScheme = "resellai://auth/ebay"
-    static let ebayRuName = "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
+    static let ebayRuName = ProcessInfo.processInfo.environment["EBAY_RU_NAME"] ?? "Alec_Rodriguez-AlecRodr-resell-yinuaueco"
+    
+    // eBay Seller Policies (OPTIONAL - WILL AUTO-CREATE IF EMPTY)
+    static let ebayFulfillmentPolicyId = ProcessInfo.processInfo.environment["EBAY_FULFILLMENT_POLICY_ID"] ?? ""
+    static let ebayPaymentPolicyId = ProcessInfo.processInfo.environment["EBAY_PAYMENT_POLICY_ID"] ?? ""
+    static let ebayReturnPolicyId = ProcessInfo.processInfo.environment["EBAY_RETURN_POLICY_ID"] ?? ""
     
     // MARK: - API Endpoints
     static let openAIEndpoint = "https://api.openai.com/v1/chat/completions"
@@ -92,11 +97,19 @@ struct Configuration {
     static var isFullyConfigured: Bool {
         return !openAIKey.isEmpty &&
                !ebayAPIKey.isEmpty &&
-               !ebayClientSecret.isEmpty
+               !ebayClientSecret.isEmpty &&
+               !ebayFulfillmentPolicyId.isEmpty &&
+               !ebayPaymentPolicyId.isEmpty &&
+               !ebayReturnPolicyId.isEmpty
     }
     
     static var isEbayConfigured: Bool {
-        return !ebayAPIKey.isEmpty && !ebayClientSecret.isEmpty && !ebayDevId.isEmpty
+        return !ebayAPIKey.isEmpty &&
+               !ebayClientSecret.isEmpty &&
+               !ebayDevId.isEmpty &&
+               !ebayFulfillmentPolicyId.isEmpty &&
+               !ebayPaymentPolicyId.isEmpty &&
+               !ebayReturnPolicyId.isEmpty
     }
     
     static var configurationStatus: String {
@@ -108,11 +121,14 @@ struct Configuration {
             if ebayAPIKey.isEmpty { missing.append("eBay API Key") }
             if ebayClientSecret.isEmpty { missing.append("eBay Client Secret") }
             if ebayDevId.isEmpty { missing.append("eBay Dev ID") }
+            if ebayFulfillmentPolicyId.isEmpty { missing.append("eBay Fulfillment Policy") }
+            if ebayPaymentPolicyId.isEmpty { missing.append("eBay Payment Policy") }
+            if ebayReturnPolicyId.isEmpty { missing.append("eBay Return Policy") }
             return "Missing: \(missing.joined(separator: ", "))"
         }
     }
     
-    // MARK: - Development Helpers
+    // MARK: - Development Helpers (SAFE VALIDATION)
     static func validateConfiguration() {
         print("🔧 ResellAI Configuration Status:")
         print("✅ OpenAI: \(openAIKey.isEmpty ? "❌ Missing" : "✅ Configured")")
@@ -120,6 +136,9 @@ struct Configuration {
         print("✅ eBay Client Secret: \(ebayClientSecret.isEmpty ? "❌ Missing" : "✅ Configured")")
         print("✅ eBay Dev ID: \(ebayDevId.isEmpty ? "❌ Missing" : "✅ \(ebayDevId)")")
         print("✅ eBay RuName: \(ebayRuName.isEmpty ? "❌ Missing" : "✅ \(ebayRuName)")")
+        print("✅ eBay Fulfillment Policy: \(ebayFulfillmentPolicyId.isEmpty ? "⚠️ Will auto-create" : "✅ Configured")")
+        print("✅ eBay Payment Policy: \(ebayPaymentPolicyId.isEmpty ? "⚠️ Will auto-create" : "✅ Configured")")
+        print("✅ eBay Return Policy: \(ebayReturnPolicyId.isEmpty ? "⚠️ Will auto-create" : "✅ Configured")")
         print("✅ Environment: \(ebayEnvironment)")
         print("📊 Overall Status: \(configurationStatus)")
         
@@ -142,6 +161,9 @@ struct Configuration {
             print("• User Endpoint: \(ebayUserEndpoint)")
             print("• Inventory API: \(ebaySellInventoryAPI)")
             print("• Scopes: \(ebayRequiredScopes.count) required scopes")
+            print("• Fulfillment Policy: \(ebayFulfillmentPolicyId.isEmpty ? "Will auto-create" : ebayFulfillmentPolicyId)")
+            print("• Payment Policy: \(ebayPaymentPolicyId.isEmpty ? "Will auto-create" : ebayPaymentPolicyId)")
+            print("• Return Policy: \(ebayReturnPolicyId.isEmpty ? "Will auto-create" : ebayReturnPolicyId)")
         }
     }
     

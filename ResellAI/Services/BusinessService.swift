@@ -2,7 +2,7 @@
 //  BusinessService.swift
 //  ResellAI
 //
-//  Main Business Service with Queue System
+//  Main Business Service - Safe Update (Uses Both OAuth + Listing Services)
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ import FirebaseFirestore
 import CryptoKit
 import SafariServices
 
-// MARK: - MAIN BUSINESS SERVICE WITH QUEUE SYSTEM
+// MARK: - MAIN BUSINESS SERVICE (SAFE - USES BOTH SERVICES)
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -29,7 +29,13 @@ class BusinessService: ObservableObject {
     @Published var queueProgressValue: Double = 0.0
     
     private let aiService = AIAnalysisService()
+    
+    // ✅ KEEP YOUR WORKING OAUTH SERVICE UNTOUCHED
     let ebayService = EbayService()
+    
+    // ✅ NEW LISTING SERVICE (SEPARATE)
+    private let ebayListingService = EbayListingService()
+    
     private let googleSheetsService = GoogleSheetsService()
     
     // Firebase integration
@@ -39,7 +45,7 @@ class BusinessService: ObservableObject {
     private var queueTimer: Timer?
     
     init() {
-        print("🚀 ResellAI Business Service initialized with Queue System")
+        print("🚀 ResellAI Business Service initialized with Safe Architecture")
         loadSavedQueue()
     }
     
@@ -48,8 +54,25 @@ class BusinessService: ObservableObject {
         self.firebaseService = firebaseService
         authenticateGoogleSheets()
         
-        // Initialize eBay with real credentials
+        // ✅ INITIALIZE YOUR WORKING OAUTH SERVICE (UNCHANGED)
         ebayService.initialize()
+    }
+    
+    // ✅ OAUTH METHODS - DELEGATE TO YOUR WORKING SERVICE
+    func authenticateEbay(completion: @escaping (Bool) -> Void) {
+        ebayService.authenticate(completion: completion)
+    }
+    
+    func handleEbayAuthCallback(url: URL) {
+        ebayService.handleAuthCallback(url: url)
+    }
+    
+    var isEbayAuthenticated: Bool {
+        return ebayService.isAuthenticated
+    }
+    
+    var ebayAuthStatus: String {
+        return ebayService.authStatus
     }
     
     // MARK: - QUEUE MANAGEMENT METHODS
@@ -674,13 +697,13 @@ class BusinessService: ObservableObject {
             quickPrice: pricing.quickPrice,
             premiumPrice: pricing.premiumPrice,
             averagePrice: pricing.averagePrice,
-            marketConfidence: nil, // Remove confidence scores
+            marketConfidence: nil,
             soldListingsCount: marketData.soldComps.count > 0 ? marketData.soldComps.count : nil,
             competitorCount: marketData.activeListings.count > 0 ? marketData.activeListings.count : nil,
             demandLevel: calculateDemandLevel(marketData: marketData),
             listingStrategy: "Fixed Price",
             sourcingTips: generateSourcingTips(productResult: productResult, pricing: pricing),
-            aiConfidence: nil, // Remove AI confidence
+            aiConfidence: nil,
             resalePotential: calculateResalePotential(pricing: pricing, marketData: marketData),
             priceRange: EbayPriceRange(
                 low: pricing.quickPrice,
@@ -932,7 +955,7 @@ class BusinessService: ObservableObject {
         return queries
     }
     
-    // MARK: - EBAY LISTING CREATION
+    // ✅ REAL EBAY LISTING CREATION - USES NEW LISTING SERVICE
     func createEbayListing(from analysis: AnalysisResult, images: [UIImage], completion: @escaping (Bool, String?) -> Void) {
         guard let firebase = firebaseService else {
             completion(false, "Firebase not initialized")
@@ -944,9 +967,22 @@ class BusinessService: ObservableObject {
             return
         }
         
-        print("📤 Creating eBay listing for: \(analysis.name)")
+        // ✅ CHECK IF WE HAVE VALID OAUTH TOKEN FROM YOUR WORKING SERVICE
+        guard ebayService.isAuthenticated else {
+            completion(false, "Please connect your eBay account first")
+            return
+        }
         
-        ebayService.createListing(analysis: analysis, images: images) { [weak self] success, errorMessage in
+        guard let accessToken = ebayService.getAccessToken() else {
+            completion(false, "No valid eBay access token")
+            return
+        }
+        
+        print("📤 Creating eBay listing for: \(analysis.name)")
+        print("• Using OAuth token from working service: \(accessToken.prefix(10))...")
+        
+        // ✅ USE NEW LISTING SERVICE WITH TOKEN FROM OAUTH SERVICE
+        ebayListingService.createListing(analysis: analysis, images: images, accessToken: accessToken) { [weak self] success, errorMessage in
             if success {
                 firebase.trackUsage(action: "listing_created", metadata: [
                     "item_name": analysis.name,
@@ -957,22 +993,6 @@ class BusinessService: ObservableObject {
             }
             completion(success, errorMessage)
         }
-    }
-    
-    func authenticateEbay(completion: @escaping (Bool) -> Void) {
-        ebayService.authenticate(completion: completion)
-    }
-    
-    func handleEbayAuthCallback(url: URL) {
-        ebayService.handleAuthCallback(url: url)
-    }
-    
-    var isEbayAuthenticated: Bool {
-        return ebayService.isAuthenticated
-    }
-    
-    var ebayAuthStatus: String {
-        return ebayService.authStatus
     }
     
     func analyzeBarcode(_ barcode: String, images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
