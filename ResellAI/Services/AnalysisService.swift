@@ -54,6 +54,7 @@ class AIAnalysisService: ObservableObject {
             ])
         }
         
+        // FIXED: Use max_completion_tokens instead of max_tokens
         let requestBody: [String: Any] = [
             "model": Configuration.aiModel,
             "messages": [
@@ -62,7 +63,7 @@ class AIAnalysisService: ObservableObject {
                     "content": content
                 ]
             ],
-            "max_tokens": Configuration.aiMaxTokens,
+            "max_completion_tokens": Configuration.aiMaxTokens,  // CHANGED FROM max_tokens
             "temperature": Configuration.aiTemperature
         ]
         
