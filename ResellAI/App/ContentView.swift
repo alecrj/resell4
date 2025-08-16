@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  ResellAI
 //
-//  Main App with AI Integration
+//  Premium Dark Theme Main App
 //
 
 import SwiftUI
@@ -30,14 +30,14 @@ struct ContentView: View {
         Group {
             if authService.isAuthenticated {
                 if businessService.ebayService.isAuthenticated {
-                    // ✅ SHOW MAIN CAMERA APP WITH AI
+                    // Main Camera App with Premium Design
                     MainCameraView()
                         .environmentObject(authService)
                         .environmentObject(firebaseService)
                         .environmentObject(inventoryService)
                         .environmentObject(businessService)
                 } else {
-                    // Show eBay connection flow
+                    // eBay Connection Flow
                     EbayConnectView()
                         .environmentObject(authService)
                         .environmentObject(firebaseService)
@@ -49,7 +49,8 @@ struct ContentView: View {
                     .environmentObject(authService)
             }
         }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(.dark) // Force dark theme
+        .background(DesignSystem.background)
         .onAppear {
             initializeServices()
         }
@@ -94,7 +95,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - MAIN CAMERA VIEW WITH AI
+// MARK: - MAIN CAMERA VIEW WITH PREMIUM DESIGN
 struct MainCameraView: View {
     @EnvironmentObject var businessService: BusinessService
     @EnvironmentObject var authService: AuthService
@@ -112,45 +113,50 @@ struct MainCameraView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header with AI branding
-            header
+            // Premium Header
+            premiumHeader
             
-            // Main content area
-            if capturedImages.isEmpty && !showingProcessing && analysisResult == nil {
-                // Initial camera state
-                InitialCameraState(
-                    onCamera: {
-                        checkCameraPermission { granted in
-                            if granted {
-                                showingCamera = true
-                            } else {
-                                errorMessage = "Camera access required to take photos"
-                                showingError = true
+            // Main Content Area
+            ZStack {
+                DesignSystem.background
+                    .ignoresSafeArea()
+                
+                if capturedImages.isEmpty && !showingProcessing && analysisResult == nil {
+                    // Initial State
+                    InitialCameraState(
+                        onCamera: {
+                            checkCameraPermission { granted in
+                                if granted {
+                                    showingCamera = true
+                                } else {
+                                    errorMessage = "Camera access required to take photos"
+                                    showingError = true
+                                }
                             }
-                        }
-                    },
-                    onLibrary: { showingPhotoLibrary = true }
-                )
-            } else if showingProcessing {
-                // Processing state
-                ProcessingView()
-            } else if let result = analysisResult {
-                // Results state
-                ReviewListingView(
-                    result: result,
-                    images: capturedImages,
-                    onNewPhoto: resetToCamera,
-                    onPostListing: postToEbay
-                )
-            } else {
-                // Photo preview state
-                PhotoPreviewView(
-                    images: capturedImages,
-                    onAnalyze: analyzePhotos,
-                    onAddMore: { showingPhotoLibrary = true },
-                    onReset: resetToCamera,
-                    canAnalyze: authService.canAnalyze
-                )
+                        },
+                        onLibrary: { showingPhotoLibrary = true }
+                    )
+                } else if showingProcessing {
+                    // Processing State
+                    ProcessingView()
+                } else if let result = analysisResult {
+                    // Results State
+                    ReviewListingView(
+                        result: result,
+                        images: capturedImages,
+                        onNewPhoto: resetToCamera,
+                        onPostListing: postToEbay
+                    )
+                } else {
+                    // Photo Preview State
+                    PhotoPreviewView(
+                        images: capturedImages,
+                        onAnalyze: analyzePhotos,
+                        onAddMore: { showingPhotoLibrary = true },
+                        onReset: resetToCamera,
+                        canAnalyze: authService.canAnalyze
+                    )
+                }
             }
         }
         .background(DesignSystem.background)
@@ -196,79 +202,120 @@ struct MainCameraView: View {
         }
     }
     
-    // MARK: - Header
-    private var header: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 8) {
-                    Text("ResellAI")
-                        .font(DesignSystem.titleFont)
-                        .foregroundColor(DesignSystem.primary)
-                    
-                    // AI badge
-                    HStack(spacing: 4) {
-                        Image(systemName: "brain.head.profile")
-                            .font(.system(size: 12))
-                        Text("AI")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                    }
-                    .foregroundColor(DesignSystem.neonGreen)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(DesignSystem.neonGreen.opacity(0.1))
-                    .cornerRadius(12)
-                }
-                
-                Text("Photo to eBay listing in 30 seconds")
-                    .font(.caption)
-                    .foregroundColor(DesignSystem.secondary)
-            }
-            
-            Spacer()
-            
-            HStack(spacing: 16) {
-                // eBay status indicator
-                Button(action: { showingEbayStatus = true }) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(businessService.ebayService.isAuthenticated ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
+    // MARK: - Premium Header
+    private var premiumHeader: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: DesignSystem.spacing4) {
+                // App Branding
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: DesignSystem.spacing2) {
+                        Text("ResellAI")
+                            .font(DesignSystem.largeTitleFont)
+                            .foregroundColor(DesignSystem.textPrimary)
                         
-                        Text(businessService.ebayService.isAuthenticated ? "eBay ✓" : "eBay")
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.secondary)
-                    }
-                }
-                
-                // Usage indicator
-                if let user = authService.currentUser {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(authService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
-                            .font(DesignSystem.captionFont)
-                            .foregroundColor(DesignSystem.secondary)
-                        
-                        if !authService.canAnalyze {
-                            Text("Upgrade")
-                                .font(.caption2)
-                                .foregroundColor(.red)
-                        } else {
-                            Text("analyses")
-                                .font(.caption2)
-                                .foregroundColor(DesignSystem.secondary)
+                        // AI Badge with subtle glow
+                        HStack(spacing: 4) {
+                            Image(systemName: "brain.head.profile")
+                                .font(.system(size: 14, weight: .medium))
+                            
+                            Text("AI")
+                                .font(DesignSystem.aiCaptionFont)
+                                .fontWeight(.bold)
                         }
+                        .foregroundColor(DesignSystem.aiPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(DesignSystem.aiPrimary.opacity(0.15))
+                        )
+                        .premiumGlow(color: DesignSystem.aiPrimary, radius: 6, intensity: 0.3)
                     }
+                    
+                    Text("Photo to eBay listing in 30 seconds")
+                        .font(DesignSystem.captionFont)
+                        .foregroundColor(DesignSystem.textTertiary)
                 }
                 
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(DesignSystem.secondary)
+                Spacer()
+                
+                // Status Indicators
+                HStack(spacing: DesignSystem.spacing4) {
+                    // eBay Status
+                    Button(action: { showingEbayStatus = true }) {
+                        HStack(spacing: 6) {
+                            StatusIndicator(
+                                isConnected: businessService.ebayService.isAuthenticated,
+                                label: businessService.ebayService.isAuthenticated ? "eBay" : "eBay",
+                                showPulse: businessService.ebayService.isAuthenticated
+                            )
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(DesignSystem.surfaceSecondary)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 20)
+                                        .stroke(
+                                            businessService.ebayService.isAuthenticated
+                                            ? DesignSystem.success.opacity(0.3)
+                                            : DesignSystem.error.opacity(0.3),
+                                            lineWidth: 1
+                                        )
+                                )
+                        )
+                    }
+                    
+                    // Usage Meter
+                    if let user = authService.currentUser {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(authService.monthlyAnalysisCount)/\(user.monthlyAnalysisLimit)")
+                                .font(DesignSystem.aiCaptionFont)
+                                .fontWeight(.medium)
+                                .foregroundColor(DesignSystem.textSecondary)
+                            
+                            if !authService.canAnalyze {
+                                Text("UPGRADE")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(DesignSystem.error)
+                            } else {
+                                Text("analyses")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(DesignSystem.textTertiary)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(DesignSystem.surfaceSecondary)
+                        )
+                    }
+                    
+                    // Settings Button
+                    Button(action: { showingSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(DesignSystem.textSecondary)
+                            .frame(width: 40, height: 40)
+                            .background(
+                                Circle()
+                                    .fill(DesignSystem.surfaceSecondary)
+                            )
+                    }
                 }
             }
+            .padding(.horizontal, DesignSystem.spacing6)
+            .padding(.vertical, DesignSystem.spacing4)
+            
+            // Subtle separator
+            Rectangle()
+                .fill(DesignSystem.surfaceTertiary)
+                .frame(height: 1)
+                .opacity(0.5)
         }
-        .padding(.horizontal, DesignSystem.spacing3)
-        .padding(.vertical, DesignSystem.spacing2)
+        .background(DesignSystem.surfaceSecondary)
     }
     
     // MARK: - Helper Methods
@@ -317,9 +364,11 @@ struct MainCameraView: View {
     }
     
     private func resetToCamera() {
-        capturedImages = []
-        analysisResult = nil
-        showingProcessing = false
+        withAnimation(.easeInOut(duration: DesignSystem.animationMedium)) {
+            capturedImages = []
+            analysisResult = nil
+            showingProcessing = false
+        }
     }
     
     private func postToEbay() {

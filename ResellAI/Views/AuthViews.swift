@@ -2,7 +2,7 @@
 //  AuthViews.swift
 //  ResellAI
 //
-//  Authentication Feature - Views with Debug Info
+//  Premium Dark Theme Authentication Views
 //
 
 import SwiftUI
@@ -14,16 +14,26 @@ struct WelcomeFlow: View {
     @State private var showingAuth = false
     
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack {
+            DesignSystem.background
+                .ignoresSafeArea()
+            
             if currentStep == 0 {
-                WelcomeScreen(onGetStarted: { currentStep = 1 })
+                WelcomeScreen(onGetStarted: {
+                    withAnimation(.easeInOut(duration: DesignSystem.animationMedium)) {
+                        currentStep = 1
+                    }
+                })
             } else if currentStep == 1 {
-                WalkthroughScreen(onContinue: { currentStep = 2 })
+                WalkthroughScreen(onContinue: {
+                    withAnimation(.easeInOut(duration: DesignSystem.animationMedium)) {
+                        currentStep = 2
+                    }
+                })
             } else {
                 AuthScreen()
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: currentStep)
         .onAppear {
             print("🎯 WelcomeFlow appeared - isAuthenticated: \(authService.isAuthenticated)")
         }
@@ -38,39 +48,76 @@ struct WelcomeScreen: View {
     let onGetStarted: () -> Void
     
     var body: some View {
-        VStack(spacing: DesignSystem.spacing4) {
+        VStack(spacing: DesignSystem.spacing8) {
             Spacer()
             
-            // Logo/Icon
-            Circle()
-                .fill(DesignSystem.neonGreen)
-                .frame(width: 80, height: 80)
-                .overlay(
+            // Premium App Icon
+            VStack(spacing: DesignSystem.spacing6) {
+                ZStack {
+                    Circle()
+                        .fill(DesignSystem.surfaceGradient)
+                        .frame(width: 120, height: 120)
+                        .overlay(
+                            Circle()
+                                .stroke(DesignSystem.aiPrimary.opacity(0.3), lineWidth: 3)
+                        )
+                    
                     Image(systemName: "camera.viewfinder")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(.black)
-                )
-            
-            VStack(spacing: DesignSystem.spacing2) {
-                Text("ResellAI")
-                    .font(DesignSystem.titleFont)
-                    .foregroundColor(DesignSystem.primary)
+                        .font(.system(size: 40, weight: .bold))
+                        .foregroundStyle(DesignSystem.aiGradient)
+                }
+                .premiumGlow(color: DesignSystem.aiPrimary, radius: 30, intensity: 0.6)
                 
-                Text("Take a photo.\nResellAI does the rest.")
-                    .font(DesignSystem.headlineFont)
-                    .foregroundColor(DesignSystem.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
+                VStack(spacing: DesignSystem.spacing4) {
+                    HStack(spacing: DesignSystem.spacing2) {
+                        Text("ResellAI")
+                            .font(DesignSystem.titleFont)
+                            .foregroundColor(DesignSystem.textPrimary)
+                        
+                        // AI Badge
+                        HStack(spacing: 4) {
+                            Image(systemName: "brain.head.profile")
+                                .font(.system(size: 16, weight: .medium))
+                            
+                            Text("AI")
+                                .font(DesignSystem.aiCaptionFont)
+                                .fontWeight(.bold)
+                        }
+                        .foregroundColor(DesignSystem.aiPrimary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(DesignSystem.aiPrimary.opacity(0.15))
+                        )
+                        .premiumGlow(color: DesignSystem.aiPrimary, radius: 8, intensity: 0.4)
+                    }
+                    
+                    Text("Take a photo.\nResellAI does the rest.")
+                        .font(DesignSystem.headlineFont)
+                        .foregroundColor(DesignSystem.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(6)
+                }
             }
             
             Spacer()
             
             // CTA Button
-            PrimaryButton(title: "Get Started", action: onGetStarted)
-                .padding(.horizontal, DesignSystem.spacing3)
+            VStack(spacing: DesignSystem.spacing3) {
+                PrimaryButton(
+                    title: "Get Started",
+                    action: onGetStarted,
+                    icon: "arrow.right"
+                )
+                
+                Text("Photo to eBay listing in 30 seconds")
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.textTertiary)
+            }
+            .padding(.horizontal, DesignSystem.spacing6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DesignSystem.background)
     }
 }
 
@@ -79,43 +126,64 @@ struct WalkthroughScreen: View {
     let onContinue: () -> Void
     
     var body: some View {
-        VStack(spacing: DesignSystem.spacing4) {
-            Text("How it works")
-                .font(DesignSystem.titleFont)
-                .foregroundColor(DesignSystem.primary)
-                .padding(.top, DesignSystem.spacing4)
+        VStack(spacing: DesignSystem.spacing8) {
+            // Header
+            VStack(spacing: DesignSystem.spacing4) {
+                Text("How it works")
+                    .font(DesignSystem.titleFont)
+                    .foregroundColor(DesignSystem.textPrimary)
+                
+                Text("AI-powered reselling in three simple steps")
+                    .font(DesignSystem.bodyFont)
+                    .foregroundColor(DesignSystem.textSecondary)
+            }
+            .padding(.top, DesignSystem.spacing8)
             
-            VStack(spacing: DesignSystem.spacing3) {
+            // Steps
+            VStack(spacing: DesignSystem.spacing6) {
                 WalkthroughStep(
                     number: "1",
                     icon: "camera.fill",
                     title: "Snap a photo",
-                    description: "Take a photo of any item you want to sell"
+                    description: "Take a photo of any item you want to sell",
+                    color: DesignSystem.aiPrimary
                 )
                 
                 WalkthroughStep(
                     number: "2",
                     icon: "brain.head.profile",
                     title: "AI identifies item",
-                    description: "Our AI identifies the product and finds market comps"
+                    description: "Our AI identifies the product and finds market data",
+                    color: DesignSystem.aiSecondary
                 )
                 
                 WalkthroughStep(
                     number: "3",
                     icon: "network",
                     title: "Auto-post to eBay",
-                    description: "Optimized listing goes live on your eBay account"
+                    description: "Optimized listing goes live on your eBay account",
+                    color: DesignSystem.aiAccent
                 )
             }
-            .padding(.horizontal, DesignSystem.spacing3)
+            .padding(.horizontal, DesignSystem.spacing6)
             
             Spacer()
             
-            PrimaryButton(title: "Continue", action: onContinue)
-                .padding(.horizontal, DesignSystem.spacing3)
+            // Continue Button
+            VStack(spacing: DesignSystem.spacing3) {
+                PrimaryButton(
+                    title: "Continue",
+                    action: onContinue,
+                    icon: "arrow.right"
+                )
+                
+                Text("Ready to start selling smarter?")
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.textTertiary)
+            }
+            .padding(.horizontal, DesignSystem.spacing6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DesignSystem.background)
     }
 }
 
@@ -124,111 +192,99 @@ struct WalkthroughStep: View {
     let icon: String
     let title: String
     let description: String
+    let color: Color
     
     var body: some View {
-        HStack(spacing: DesignSystem.spacing2) {
-            // Step number
-            Circle()
-                .fill(DesignSystem.neonGreen)
-                .frame(width: 40, height: 40)
-                .overlay(
+        HStack(spacing: DesignSystem.spacing4) {
+            // Step Number with Icon
+            ZStack {
+                Circle()
+                    .fill(color.opacity(0.2))
+                    .frame(width: 64, height: 64)
+                
+                Circle()
+                    .stroke(color, lineWidth: 2)
+                    .frame(width: 64, height: 64)
+                
+                VStack(spacing: 2) {
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(color)
+                    
                     Text(number)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.black)
-                )
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(color)
+                }
+            }
+            .premiumGlow(color: color, radius: 12, intensity: 0.4)
             
             // Content
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Image(systemName: icon)
-                        .foregroundColor(DesignSystem.primary)
-                    Text(title)
-                        .font(DesignSystem.headlineFont)
-                        .foregroundColor(DesignSystem.primary)
-                }
+            VStack(alignment: .leading, spacing: DesignSystem.spacing1) {
+                Text(title)
+                    .font(DesignSystem.headlineFont)
+                    .foregroundColor(DesignSystem.textPrimary)
                 
                 Text(description)
                     .font(DesignSystem.bodyFont)
-                    .foregroundColor(DesignSystem.secondary)
+                    .foregroundColor(DesignSystem.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             
             Spacer()
         }
+        .padding(DesignSystem.spacing4)
+        .premiumCard()
     }
 }
 
-// MARK: - AUTH SCREEN (WITH DEBUG INFO)
+// MARK: - AUTH SCREEN
 struct AuthScreen: View {
     @EnvironmentObject var authService: AuthService
     
     var body: some View {
-        VStack(spacing: DesignSystem.spacing4) {
+        VStack(spacing: DesignSystem.spacing8) {
             Spacer()
             
-            VStack(spacing: DesignSystem.spacing2) {
+            // Header
+            VStack(spacing: DesignSystem.spacing4) {
                 Text("Sign in to continue")
                     .font(DesignSystem.titleFont)
-                    .foregroundColor(DesignSystem.primary)
+                    .foregroundColor(DesignSystem.textPrimary)
                 
-                Text("Connect your account to start selling")
+                Text("Connect your account to start selling with AI")
                     .font(DesignSystem.bodyFont)
-                    .foregroundColor(DesignSystem.secondary)
+                    .foregroundColor(DesignSystem.textSecondary)
+                    .multilineTextAlignment(.center)
             }
             
-            // Debug info
-            VStack(spacing: 4) {
-                Text("Debug Info:")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                
-                Text("isAuthenticated: \(authService.isAuthenticated ? "YES" : "NO")")
-                    .font(.caption)
-                    .foregroundColor(authService.isAuthenticated ? .green : .red)
-                
-                Text("isLoading: \(authService.isLoading ? "YES" : "NO")")
-                    .font(.caption)
-                    .foregroundColor(.gray)
-                
-                if let user = authService.currentUser {
-                    Text("User: \(user.displayName ?? "Unknown")")
-                        .font(.caption)
-                        .foregroundColor(.green)
-                } else {
-                    Text("User: None")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-                
-                if let error = authService.authError {
-                    Text("Error: \(error)")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-            }
-            .padding()
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(8)
-            .padding(.horizontal)
+            Spacer()
             
-            VStack(spacing: DesignSystem.spacing2) {
+            // Auth Buttons
+            VStack(spacing: DesignSystem.spacing4) {
                 // Apple Sign In
                 Button(action: {
                     print("🍎 Apple Sign In button tapped")
                     authService.signInWithApple()
                 }) {
-                    HStack {
+                    HStack(spacing: DesignSystem.spacing3) {
                         Image(systemName: "applelogo")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
+                        
                         Text("Continue with Apple")
                             .font(DesignSystem.bodyFont)
                             .fontWeight(.semibold)
                     }
-                    .foregroundColor(.white)
+                    .foregroundColor(DesignSystem.textPrimary)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(Color.black)
-                    .cornerRadius(DesignSystem.buttonRadius)
+                    .frame(height: DesignSystem.ButtonStyle.height)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignSystem.buttonRadius)
+                            .fill(DesignSystem.surfaceSecondary)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignSystem.buttonRadius)
+                                    .stroke(DesignSystem.textPrimary.opacity(0.3), lineWidth: 1)
+                            )
+                    )
                 }
                 
                 // Google Sign In
@@ -236,50 +292,53 @@ struct AuthScreen: View {
                     print("🔍 Google Sign In button tapped")
                     authService.signInWithGoogle()
                 }) {
-                    HStack {
+                    HStack(spacing: DesignSystem.spacing3) {
                         Image(systemName: "globe")
-                            .font(.system(size: 18, weight: .semibold))
+                            .font(.system(size: 20, weight: .semibold))
+                        
                         Text("Continue with Google")
                             .font(DesignSystem.bodyFont)
                             .fontWeight(.semibold)
                     }
-                    .foregroundColor(.black)
+                    .foregroundColor(DesignSystem.background)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(DesignSystem.tertiary)
-                    .cornerRadius(DesignSystem.buttonRadius)
+                    .frame(height: DesignSystem.ButtonStyle.height)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignSystem.buttonRadius)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.white, Color(white: 0.95)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    )
                 }
-                
-                // Test button to force state change
-                Button("🔄 Test Auth State") {
-                    print("📊 Current Auth State:")
-                    print("• isAuthenticated: \(authService.isAuthenticated)")
-                    print("• isLoading: \(authService.isLoading)")
-                    print("• currentUser: \(authService.currentUser?.displayName ?? "nil")")
-                    print("• authError: \(authService.authError ?? "nil")")
-                }
-                .font(.caption)
-                .foregroundColor(.blue)
             }
-            .padding(.horizontal, DesignSystem.spacing3)
+            .padding(.horizontal, DesignSystem.spacing6)
             
             Spacer()
             
-            // Show error if any
+            // Debug Info (only in debug builds)
+            #if DEBUG
+            debugInfo
+            #endif
+            
+            // Error Display
             if let error = authService.authError {
                 Text(error)
                     .font(DesignSystem.captionFont)
-                    .foregroundColor(.red)
+                    .foregroundColor(DesignSystem.error)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, DesignSystem.spacing3)
+                    .padding(.horizontal, DesignSystem.spacing6)
+                    .padding(.bottom, DesignSystem.spacing4)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DesignSystem.background)
         .overlay(
             Group {
                 if authService.isLoading {
-                    LoadingOverlay()
+                    LoadingOverlay(message: "Signing in...")
                 }
             }
         )
@@ -292,4 +351,55 @@ struct AuthScreen: View {
             print("🔄 AuthScreen detected auth change: \(isAuthenticated)")
         }
     }
+    
+    #if DEBUG
+    private var debugInfo: some View {
+        VStack(spacing: DesignSystem.spacing2) {
+            Text("Debug Info:")
+                .font(DesignSystem.captionFont)
+                .foregroundColor(DesignSystem.textTertiary)
+            
+            Text("isAuthenticated: \(authService.isAuthenticated ? "YES" : "NO")")
+                .font(DesignSystem.captionFont)
+                .foregroundColor(authService.isAuthenticated ? DesignSystem.success : DesignSystem.error)
+            
+            Text("isLoading: \(authService.isLoading ? "YES" : "NO")")
+                .font(DesignSystem.captionFont)
+                .foregroundColor(DesignSystem.textTertiary)
+            
+            if let user = authService.currentUser {
+                Text("User: \(user.displayName ?? "Unknown")")
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.success)
+            } else {
+                Text("User: None")
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.error)
+            }
+            
+            if let error = authService.authError {
+                Text("Error: \(error)")
+                    .font(DesignSystem.captionFont)
+                    .foregroundColor(DesignSystem.error)
+            }
+            
+            // Test button
+            Button("🔄 Test Auth State") {
+                print("📊 Current Auth State:")
+                print("• isAuthenticated: \(authService.isAuthenticated)")
+                print("• isLoading: \(authService.isLoading)")
+                print("• currentUser: \(authService.currentUser?.displayName ?? "nil")")
+                print("• authError: \(authService.authError ?? "nil")")
+            }
+            .font(DesignSystem.captionFont)
+            .foregroundColor(DesignSystem.info)
+        }
+        .padding(DesignSystem.spacing4)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.radiusMedium)
+                .fill(DesignSystem.surfaceSecondary.opacity(0.5))
+        )
+        .padding(.horizontal, DesignSystem.spacing6)
+    }
+    #endif
 }
