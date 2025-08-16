@@ -61,9 +61,9 @@ struct Configuration {
     static let defaultPayPalFeeRate = 0.0349
     
     // MARK: - AI Configuration
-    static let aiModel = "gpt-5-nano" // Fastest, most cost-efficient GPT-5
-    static let aiMaxTokens = 2000 // Tokens for detailed analysis
-    static let aiTemperature = 1.0 // Default temperature (required for gpt-5-nano)
+    static let aiModel = "gpt-5-nano" // Fast and cheap for item identification
+    static let aiMaxTokens = 2000 // Not used in responses API
+    static let aiTemperature = 1.0 // Required for gpt-5-nano
     
     // MARK: - Business Rules
     static let minimumROIThreshold = 50.0

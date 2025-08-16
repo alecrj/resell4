@@ -55,6 +55,7 @@ class BusinessService: ObservableObject {
     }
     
     // MARK: - SINGLE ITEM ANALYSIS
+    // In BusinessService.swift, update the analyzeItem method:
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             completion(nil)
@@ -75,7 +76,7 @@ class BusinessService: ObservableObject {
             "source": "single_item",
             "image_count": "\(images.count)",
             "timestamp": ISO8601DateFormatter().string(from: Date()),
-            "ai_version": "v2"
+            "ai_version": "v3" // Updated version
         ])
         
         DispatchQueue.main.async {
@@ -84,14 +85,15 @@ class BusinessService: ObservableObject {
             self.analysisProgress = "Analyzing with AI..."
         }
         
-        // Use AI analysis that handles both identification and pricing
-        updateProgress("AI analyzing product...", progress: 0.3)
+        // Use the improved AI analysis
+        updateProgress("Identifying item...", progress: 0.2)
         
         aiService.analyzeItemWithMarketIntelligence(images: images) { [weak self] expertResult in
             guard let expertResult = expertResult else {
                 DispatchQueue.main.async {
                     self?.isAnalyzing = false
                     self?.analysisProgress = "Analysis failed"
+                    print("❌ AI analysis failed - no result returned")
                 }
                 completion(nil)
                 return
