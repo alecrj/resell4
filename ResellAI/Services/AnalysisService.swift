@@ -30,22 +30,89 @@ class AIAnalysisService: ObservableObject {
         
         print("🧠 Starting GPT-5 analysis with \(images.count) images")
         
-        // For now, single-stage analysis with gpt-5-mini
-        // We'll add two-stage pipeline in next chat
-        analyzeWithGPT5(images: images, completion: completion)
+        // Process images to extract text first
+        extractTextFromImages(images) { [weak self] extractedText in
+            self?.analyzeWithGPT5(images: images, ocrText: extractedText, completion: completion)
+        }
+    }
+    
+    // MARK: - EXTRACT TEXT FROM IMAGES
+    private func extractTextFromImages(_ images: [UIImage], completion: @escaping (String) -> Void) {
+        var allText: [String] = []
+        let group = DispatchGroup()
+        
+        for image in images {
+            group.enter()
+            
+            guard let cgImage = image.cgImage else {
+                group.leave()
+                continue
+            }
+            
+            let requestHandler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            let request = VNRecognizeTextRequest { request, error in
+                defer { group.leave() }
+                
+                guard let observations = request.results as? [VNRecognizedTextObservation] else { return }
+                
+                let recognizedText = observations.compactMap { observation in
+                    observation.topCandidates(1).first?.string
+                }.joined(separator: " ")
+                
+                if !recognizedText.isEmpty {
+                    allText.append(recognizedText)
+                }
+            }
+            
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = true
+            
+            try? requestHandler.perform([request])
+        }
+        
+        group.notify(queue: .main) {
+            let combinedText = allText.joined(separator: "\n")
+            print("📝 Extracted OCR text: \(combinedText.prefix(200))...")
+            completion(combinedText)
+        }
     }
     
     // MARK: - GPT-5 ANALYSIS
-    private func analyzeWithGPT5(images: [UIImage], completion: @escaping (ExpertAnalysisResult?) -> Void) {
-        let prompt = buildAnalysisPrompt()
-        let model = "gpt-5-mini" // Start with mini for cost efficiency
+    private func analyzeWithGPT5(images: [UIImage], ocrText: String, completion: @escaping (ExpertAnalysisResult?) -> Void) {
+        let prompt = buildAnalysisPrompt(ocrText: ocrText)
+        
+        // Determine model based on item complexity
+        let model = shouldEscalateToFullGPT5(images: images, ocrText: ocrText) ? "gpt-5" : "gpt-5-mini"
+        let effort = model == "gpt-5" ? "high" : "medium"
         
         performGPT5Analysis(
             model: model,
             images: images,
             prompt: prompt,
+            reasoningEffort: effort,
             completion: completion
         )
+    }
+    
+    // MARK: - DETERMINE IF ESCALATION NEEDED
+    private func shouldEscalateToFullGPT5(images: [UIImage], ocrText: String) -> Bool {
+        let ocrLower = ocrText.lowercased()
+        
+        // Check for luxury brands
+        for brand in Configuration.luxuryBrands {
+            if ocrLower.contains(brand.lowercased()) {
+                print("💎 Luxury brand detected: \(brand) - escalating to gpt-5")
+                return true
+            }
+        }
+        
+        // Check if text is unclear or minimal
+        if ocrText.count < 20 {
+            print("⚠️ Limited text detected - escalating to gpt-5")
+            return true
+        }
+        
+        return false
     }
     
     // MARK: - GPT-5 API CALL (FIXED)
@@ -53,6 +120,7 @@ class AIAnalysisService: ObservableObject {
         model: String,
         images: [UIImage],
         prompt: String,
+        reasoningEffort: String,
         completion: @escaping (ExpertAnalysisResult?) -> Void
     ) {
         guard let url = URL(string: endpoint) else {
@@ -60,38 +128,39 @@ class AIAnalysisService: ObservableObject {
             return
         }
         
-        // Build input with prompt and images
-        var inputParts: [String] = [prompt]
-        
-        // Add images (max 5)
-        let imagesToProcess = images.prefix(5)
-        for (index, image) in imagesToProcess.enumerated() {
+        // Encode images
+        var imageStrings: [String] = []
+        for (index, image) in images.prefix(5).enumerated() {
             if let imageData = compressImage(image) {
                 let base64Image = imageData.base64EncodedString()
-                inputParts.append("\n\n[Image \(index + 1)]:\ndata:image/jpeg;base64,\(base64Image)")
+                imageStrings.append("Image \(index + 1): data:image/jpeg;base64,\(base64Image)")
             }
         }
         
-        let fullInput = inputParts.joined()
+        // Build the full input
+        let fullInput = """
+        \(prompt)
+        
+        \(imageStrings.joined(separator: "\n\n"))
+        """
         
         // Build request body for GPT-5 Responses API
         let requestBody: [String: Any] = [
             "model": model,
             "input": fullInput,
             "reasoning": [
-                "effort": "medium"  // Start with medium, will adjust based on item type
+                "effort": reasoningEffort
             ],
             "text": [
                 "verbosity": "medium"
             ]
-            // Note: format specification might be different for json_object
         ]
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
+        request.timeoutInterval = 60 // Longer timeout for reasoning
         
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
@@ -101,7 +170,7 @@ class AIAnalysisService: ObservableObject {
             return
         }
         
-        print("🚀 Calling \(model) with medium reasoning effort")
+        print("🚀 Calling \(model) with \(reasoningEffort) reasoning effort")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
@@ -129,7 +198,7 @@ class AIAnalysisService: ObservableObject {
             }
             
             // Parse the response
-            if let result = self?.parseGPT5Response(data) {
+            if let result = self?.parseGPT5Response(data, model: model) {
                 completion(result)
             } else {
                 completion(nil)
@@ -138,13 +207,17 @@ class AIAnalysisService: ObservableObject {
     }
     
     // MARK: - BUILD ANALYSIS PROMPT
-    private func buildAnalysisPrompt() -> String {
+    private func buildAnalysisPrompt(ocrText: String) -> String {
         return """
-        You are a product-identification expert for resale. Analyze the provided product images and return ONLY a valid JSON object (no other text) with this exact structure:
+        You are a product-identification expert for resale. Analyze the provided product images and return ONLY a valid JSON object.
         
+        OCR_TEXT extracted from images:
+        \(ocrText)
+        
+        Return this exact JSON structure:
         {
             "attributes": {
-                "brand": "exact brand name",
+                "brand": "exact brand name or Unknown",
                 "model": "model name or null",
                 "name": "full product name",
                 "category": "product category",
@@ -190,33 +263,48 @@ class AIAnalysisService: ObservableObject {
         }
         
         Instructions:
+        - Use the OCR_TEXT to help identify style codes, brands, and other text
         - Be precise and accurate in identification
-        - Never invent style codes or identifiers - leave null if not visible
-        - Base condition assessment on visible wear, defects, and overall appearance
-        - Provide realistic pricing based on condition and typical resale values
-        - Create an eBay-optimized title with key searchable terms
-        - Include specific evidence for your identification
+        - If brand is not clearly visible, use "Unknown" rather than guessing
+        - Base pricing on typical resale values for the condition
+        - Create eBay-optimized title with searchable terms
+        - If uncertain, set confidence lower
         
-        IMPORTANT: Return ONLY the JSON object, no additional text or explanation.
+        CRITICAL: Return ONLY the JSON object, no other text.
         """
     }
     
-    // MARK: - PARSE GPT-5 RESPONSE
-    private func parseGPT5Response(_ data: Data) -> ExpertAnalysisResult? {
+    // MARK: - PARSE GPT-5 RESPONSE (FIXED)
+    private func parseGPT5Response(_ data: Data, model: String) -> ExpertAnalysisResult? {
         do {
-            // GPT-5 responses have a different structure
-            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let outputText = json["output_text"] as? String {
+            // GPT-5 responses API structure
+            if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                print("📄 Response keys: \(json.keys.joined(separator: ", "))")
                 
-                // Parse the JSON from output_text
-                if let jsonData = outputText.data(using: .utf8) {
+                // Get the output_text field
+                guard let outputText = json["output_text"] as? String else {
+                    print("❌ No output_text in response")
+                    if let responseString = String(data: data, encoding: .utf8) {
+                        print("📄 Full response: \(responseString)")
+                    }
+                    return nil
+                }
+                
+                print("📝 Got output_text, length: \(outputText.count)")
+                
+                // Clean the output text (remove any non-JSON content)
+                let cleanedText = extractJSON(from: outputText)
+                
+                // Parse the JSON from cleaned text
+                if let jsonData = cleanedText.data(using: .utf8) {
                     let parsedData = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
                     
                     // Convert to ExpertAnalysisResult
-                    if let result = parseToExpertResult(parsedData) {
+                    if let result = parseToExpertResult(parsedData, wasEscalated: model == "gpt-5") {
                         print("✅ Parsed analysis result: \(result.attributes.name)")
                         print("📊 Confidence: \(result.confidence)")
                         print("💰 Market price: $\(result.suggestedPrice.market)")
+                        print("🤖 Model used: \(model)")
                         return result
                     }
                 }
@@ -231,17 +319,29 @@ class AIAnalysisService: ObservableObject {
         return nil
     }
     
+    // MARK: - EXTRACT JSON FROM TEXT
+    private func extractJSON(from text: String) -> String {
+        // Find the first { and last }
+        if let startIndex = text.firstIndex(of: "{"),
+           let endIndex = text.lastIndex(of: "}") {
+            let jsonSubstring = text[startIndex...endIndex]
+            return String(jsonSubstring)
+        }
+        return text
+    }
+    
     // MARK: - CONVERT TO EXPERT RESULT
-    private func parseToExpertResult(_ json: [String: Any]?) -> ExpertAnalysisResult? {
+    private func parseToExpertResult(_ json: [String: Any]?, wasEscalated: Bool) -> ExpertAnalysisResult? {
         guard let json = json,
               let attributes = json["attributes"] as? [String: Any],
               let suggestedPrice = json["suggestedPrice"] as? [String: Any],
               let listingContent = json["listingContent"] as? [String: Any] else {
+            print("❌ Missing required fields in JSON")
             return nil
         }
         
         // Parse attributes
-        let brand = attributes["brand"] as? String ?? ""
+        let brand = attributes["brand"] as? String ?? "Unknown"
         let model = attributes["model"] as? String
         let name = attributes["name"] as? String ?? "Unknown Item"
         let category = attributes["category"] as? String ?? "Other"
@@ -345,7 +445,7 @@ class AIAnalysisService: ObservableObject {
             suggestedPrice: pricingStrategy,
             listingContent: content,
             marketAnalysis: insights,
-            escalatedToGPT5: false // Will implement escalation in next chat
+            escalatedToGPT5: wasEscalated
         )
     }
     
@@ -367,11 +467,11 @@ class AIAnalysisService: ObservableObject {
             resizedImage = image
         }
         
-        // Compress to ~750KB max per image
+        // Compress to ~500KB max per image for GPT-5
         var compression: CGFloat = 0.8
         var data = resizedImage.jpegData(compressionQuality: compression)
         
-        while let imageData = data, imageData.count > 750_000, compression > 0.3 {
+        while let imageData = data, imageData.count > 500_000, compression > 0.3 {
             compression -= 0.1
             data = resizedImage.jpegData(compressionQuality: compression)
         }
