@@ -2,17 +2,17 @@
 //  AnalysisService.swift
 //  ResellAI
 //
-//  GPT-5 Tiered Analysis System - Fixed for Responses API
+//  GPT-5 Analysis System - Fixed for Real API
 //
 
 import SwiftUI
 import Foundation
 import Vision
 
-// MARK: - AI ANALYSIS SERVICE WITH GPT-5
+// MARK: - ANALYSIS SERVICE WITH GPT-5
 class AIAnalysisService: ObservableObject {
     private let apiKey = Configuration.openAIKey
-    private let responsesEndpoint = "https://api.openai.com/v1/responses"
+    private let endpoint = "https://api.openai.com/v1/responses"
     
     // MARK: - MAIN ANALYSIS FUNCTION
     func analyzeItemWithMarketIntelligence(images: [UIImage], completion: @escaping (ExpertAnalysisResult?) -> Void) {
@@ -30,150 +30,61 @@ class AIAnalysisService: ObservableObject {
         
         print("🧠 Starting GPT-5 analysis with \(images.count) images")
         
-        // Step 1: Try GPT-5-mini first
-        analyzeWithGPT5Mini(images: images) { [weak self] miniResult in
-            guard let miniResult = miniResult else {
-                print("❌ GPT-5-mini analysis failed")
-                completion(nil)
-                return
-            }
-            
-            // Step 2: Check if we need to escalate
-            if self?.shouldEscalateToFullGPT5(result: miniResult, images: images) == true {
-                print("⬆️ Escalating to GPT-5 full for better accuracy")
-                self?.analyzeWithGPT5Full(images: images, previousResult: miniResult) { fullResult in
-                    completion(fullResult ?? miniResult)
-                }
-            } else {
-                print("✅ GPT-5-mini result sufficient (confidence: \(miniResult.confidence))")
-                completion(miniResult)
-            }
-        }
+        // For now, single-stage analysis with gpt-5-mini
+        // We'll add two-stage pipeline in next chat
+        analyzeWithGPT5(images: images, completion: completion)
     }
     
-    // MARK: - GPT-5-MINI ANALYSIS
-    private func analyzeWithGPT5Mini(images: [UIImage], completion: @escaping (ExpertAnalysisResult?) -> Void) {
-        let prompt = buildAnalysisPrompt(detailed: false)
+    // MARK: - GPT-5 ANALYSIS
+    private func analyzeWithGPT5(images: [UIImage], completion: @escaping (ExpertAnalysisResult?) -> Void) {
+        let prompt = buildAnalysisPrompt()
+        let model = "gpt-5-mini" // Start with mini for cost efficiency
         
         performGPT5Analysis(
-            model: "gpt-5-mini",
+            model: model,
             images: images,
             prompt: prompt,
-            reasoning: "minimal",
-            verbosity: "low",
-            retries: 2
-        ) { [weak self] responseData in
-            if let result = self?.parseAnalysisResponse(responseData, escalated: false) {
-                completion(result)
-            } else {
-                completion(nil)
-            }
-        }
+            completion: completion
+        )
     }
     
-    // MARK: - GPT-5 FULL ANALYSIS
-    private func analyzeWithGPT5Full(images: [UIImage], previousResult: ExpertAnalysisResult?, completion: @escaping (ExpertAnalysisResult?) -> Void) {
-        let prompt = buildAnalysisPrompt(detailed: true, previousResult: previousResult)
-        
-        performGPT5Analysis(
-            model: "gpt-5",
-            images: images,
-            prompt: prompt,
-            reasoning: "medium",
-            verbosity: "medium",
-            retries: 3
-        ) { [weak self] responseData in
-            if let result = self?.parseAnalysisResponse(responseData, escalated: true) {
-                completion(result)
-            } else {
-                // Fallback to previous result if full analysis fails
-                completion(previousResult)
-            }
-        }
-    }
-    
-    // MARK: - ESCALATION LOGIC
-    private func shouldEscalateToFullGPT5(result: ExpertAnalysisResult, images: [UIImage]) -> Bool {
-        // Check confidence threshold
-        if result.confidence < Configuration.aiConfidenceThreshold {
-            print("📊 Low confidence: \(result.confidence) < \(Configuration.aiConfidenceThreshold)")
-            return true
-        }
-        
-        // Check for luxury brands
-        let brandLower = result.attributes.brand.lowercased()
-        if Configuration.luxuryBrands.contains(where: { $0.lowercased() == brandLower }) {
-            print("💎 Luxury brand detected: \(result.attributes.brand)")
-            return true
-        }
-        
-        // Check for high-value categories
-        let highValueCategories = ["Watches", "Jewelry", "Handbags", "Designer", "Collectibles", "Art"]
-        if highValueCategories.contains(where: { result.attributes.category.contains($0) }) {
-            print("💰 High-value category: \(result.attributes.category)")
-            return true
-        }
-        
-        // Check for conflicting or missing critical attributes
-        if result.attributes.brand.isEmpty || result.attributes.name.contains("Unknown") {
-            print("⚠️ Missing critical attributes")
-            return true
-        }
-        
-        // Check if price suggests high value (> $500)
-        if result.suggestedPrice.market > 500 {
-            print("💸 High suggested price: $\(result.suggestedPrice.market)")
-            return true
-        }
-        
-        return false
-    }
-    
-    // MARK: - GPT-5 API CALL (FIXED FOR NEW RESPONSES FORMAT)
+    // MARK: - GPT-5 API CALL (FIXED)
     private func performGPT5Analysis(
         model: String,
         images: [UIImage],
         prompt: String,
-        reasoning: String,
-        verbosity: String,
-        retries: Int,
-        completion: @escaping (Data?) -> Void
+        completion: @escaping (ExpertAnalysisResult?) -> Void
     ) {
-        guard let url = URL(string: responsesEndpoint) else {
+        guard let url = URL(string: endpoint) else {
             completion(nil)
             return
         }
         
-        // Prepare images
-        let imageInputs = images.prefix(4).compactMap { image -> [String: Any]? in
-            guard let imageData = compressImage(image) else { return nil }
-            return [
-                "type": "image",
-                "image": [
-                    "url": "data:image/jpeg;base64,\(imageData.base64EncodedString())",
-                    "detail": "high"
-                ]
-            ]
+        // Build input with prompt and images
+        var inputParts: [String] = [prompt]
+        
+        // Add images (max 5)
+        let imagesToProcess = images.prefix(5)
+        for (index, image) in imagesToProcess.enumerated() {
+            if let imageData = compressImage(image) {
+                let base64Image = imageData.base64EncodedString()
+                inputParts.append("\n\n[Image \(index + 1)]:\ndata:image/jpeg;base64,\(base64Image)")
+            }
         }
         
-        // Build request body for new Responses API - FIXED FORMAT
+        let fullInput = inputParts.joined()
+        
+        // Build request body for GPT-5 Responses API
         let requestBody: [String: Any] = [
             "model": model,
-            "input": [
-                [
-                    "type": "text",
-                    "text": prompt
-                ]
-            ] + imageInputs,
+            "input": fullInput,
             "reasoning": [
-                "effort": reasoning
+                "effort": "medium"  // Start with medium, will adjust based on item type
             ],
             "text": [
-                "verbosity": verbosity,
-                "format": "json_object"  // FIXED: moved format to text.format
-            ],
-            "max_tokens": Configuration.aiMaxTokens,
-            "temperature": Configuration.aiTemperature
+                "verbosity": "medium"
+            ]
+            // Note: format specification might be different for json_object
         ]
         
         var request = URLRequest(url: url)
@@ -190,61 +101,47 @@ class AIAnalysisService: ObservableObject {
             return
         }
         
-        print("🚀 Calling \(model) with reasoning: \(reasoning)")
+        print("🚀 Calling \(model) with medium reasoning effort")
         
-        performRequestWithRetry(request: request, retries: retries, completion: completion)
-    }
-    
-    // MARK: - REQUEST WITH RETRY
-    private func performRequestWithRetry(request: URLRequest, retries: Int, completion: @escaping (Data?) -> Void) {
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             if let error = error {
                 print("❌ Network error: \(error.localizedDescription)")
-                if retries > 0 {
-                    print("🔄 Retrying... (\(retries) attempts left)")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        self?.performRequestWithRetry(request: request, retries: retries - 1, completion: completion)
-                    }
-                } else {
-                    completion(nil)
-                }
+                completion(nil)
                 return
             }
             
             if let httpResponse = response as? HTTPURLResponse {
                 print("📡 API Response: \(httpResponse.statusCode)")
                 
-                if httpResponse.statusCode == 429 {
-                    print("⚠️ Rate limited, waiting...")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                        self?.performRequestWithRetry(request: request, retries: retries - 1, completion: completion)
-                    }
-                    return
-                }
-                
                 if httpResponse.statusCode != 200 {
-                    if let data = data, let error = String(data: data, encoding: .utf8) {
-                        print("❌ API Error: \(error)")
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("❌ API Error: \(errorString)")
                     }
-                    if retries > 0 {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            self?.performRequestWithRetry(request: request, retries: retries - 1, completion: completion)
-                        }
-                    } else {
-                        completion(nil)
-                    }
+                    completion(nil)
                     return
                 }
             }
             
-            completion(data)
+            guard let data = data else {
+                print("❌ No response data")
+                completion(nil)
+                return
+            }
+            
+            // Parse the response
+            if let result = self?.parseGPT5Response(data) {
+                completion(result)
+            } else {
+                completion(nil)
+            }
         }.resume()
     }
     
     // MARK: - BUILD ANALYSIS PROMPT
-    private func buildAnalysisPrompt(detailed: Bool, previousResult: ExpertAnalysisResult? = nil) -> String {
-        let basePrompt = """
-        Analyze these product images and return a JSON object with this exact structure:
+    private func buildAnalysisPrompt() -> String {
+        return """
+        You are a product-identification expert for resale. Analyze the provided product images and return ONLY a valid JSON object (no other text) with this exact structure:
+        
         {
             "attributes": {
                 "brand": "exact brand name",
@@ -271,18 +168,18 @@ class AIAnalysisService: ObservableObject {
                 "specialEdition": "special edition or null"
             },
             "confidence": 0.0-1.0,
-            "evidence": ["reasons for identification"],
+            "evidence": ["specific visual elements that led to identification"],
             "suggestedPrice": {
                 "quickSale": price in USD,
                 "market": price in USD,
                 "premium": price in USD,
-                "reasoning": "pricing explanation"
+                "reasoning": "pricing explanation based on condition and market"
             },
             "listingContent": {
-                "title": "eBay title (80 chars max)",
-                "description": "professional eBay description",
-                "keywords": ["keyword1", "keyword2"],
-                "bulletPoints": ["key feature 1", "key feature 2"]
+                "title": "eBay title (70-80 chars max)",
+                "description": "professional eBay description with condition details",
+                "keywords": ["keyword1", "keyword2", "keyword3"],
+                "bulletPoints": ["key feature 1", "key feature 2", "key feature 3"]
             },
             "marketAnalysis": {
                 "demandLevel": "High/Medium/Low",
@@ -291,71 +188,165 @@ class AIAnalysisService: ObservableObject {
                 "seasonalFactors": "seasonal notes or null"
             }
         }
-        """
         
-        if detailed {
-            return basePrompt + """
-            
-            IMPORTANT: This is a HIGH-VALUE or COMPLEX item requiring maximum accuracy.
-            - Examine all visible details including tags, labels, logos, and markings
-            - Cross-reference design elements with known authentic versions
-            - Be extremely precise with model identification and year
-            - Consider rarity and special editions
-            - Provide comprehensive market analysis
-            """
-        } else {
-            return basePrompt + """
-            
-            Analyze quickly but accurately. Focus on:
-            - Clear brand and model identification
-            - Accurate condition assessment
-            - Realistic pricing based on condition
-            - Professional eBay listing content
-            """
-        }
+        Instructions:
+        - Be precise and accurate in identification
+        - Never invent style codes or identifiers - leave null if not visible
+        - Base condition assessment on visible wear, defects, and overall appearance
+        - Provide realistic pricing based on condition and typical resale values
+        - Create an eBay-optimized title with key searchable terms
+        - Include specific evidence for your identification
+        
+        IMPORTANT: Return ONLY the JSON object, no additional text or explanation.
+        """
     }
     
-    // MARK: - PARSE RESPONSE
-    private func parseAnalysisResponse(_ data: Data?, escalated: Bool) -> ExpertAnalysisResult? {
-        guard let data = data else { return nil }
-        
+    // MARK: - PARSE GPT-5 RESPONSE
+    private func parseGPT5Response(_ data: Data) -> ExpertAnalysisResult? {
         do {
-            // For GPT-5 responses API, the structure is different
+            // GPT-5 responses have a different structure
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                let outputText = json["output_text"] as? String {
                 
                 // Parse the JSON from output_text
                 if let jsonData = outputText.data(using: .utf8) {
-                    var result = try JSONDecoder().decode(ExpertAnalysisResult.self, from: jsonData)
+                    let parsedData = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any]
                     
-                    // Update escalation flag
-                    result = ExpertAnalysisResult(
-                        attributes: result.attributes,
-                        confidence: result.confidence,
-                        evidence: result.evidence,
-                        suggestedPrice: result.suggestedPrice,
-                        listingContent: result.listingContent,
-                        marketAnalysis: result.marketAnalysis,
-                        escalatedToGPT5: escalated
-                    )
-                    
-                    print("✅ Parsed analysis result: \(result.attributes.name)")
-                    print("📊 Confidence: \(result.confidence)")
-                    print("💰 Suggested price: $\(result.suggestedPrice.market)")
-                    
-                    return result
+                    // Convert to ExpertAnalysisResult
+                    if let result = parseToExpertResult(parsedData) {
+                        print("✅ Parsed analysis result: \(result.attributes.name)")
+                        print("📊 Confidence: \(result.confidence)")
+                        print("💰 Market price: $\(result.suggestedPrice.market)")
+                        return result
+                    }
                 }
             }
         } catch {
             print("❌ Parse error: \(error)")
-            
-            // Try to extract any text and create a minimal result
             if let responseString = String(data: data, encoding: .utf8) {
-                print("📄 Raw response: \(responseString.prefix(200))...")
+                print("📄 Raw response: \(responseString.prefix(500))...")
             }
         }
         
         return nil
+    }
+    
+    // MARK: - CONVERT TO EXPERT RESULT
+    private func parseToExpertResult(_ json: [String: Any]?) -> ExpertAnalysisResult? {
+        guard let json = json,
+              let attributes = json["attributes"] as? [String: Any],
+              let suggestedPrice = json["suggestedPrice"] as? [String: Any],
+              let listingContent = json["listingContent"] as? [String: Any] else {
+            return nil
+        }
+        
+        // Parse attributes
+        let brand = attributes["brand"] as? String ?? ""
+        let model = attributes["model"] as? String
+        let name = attributes["name"] as? String ?? "Unknown Item"
+        let category = attributes["category"] as? String ?? "Other"
+        let size = attributes["size"] as? String
+        let color = attributes["color"] as? String
+        let material = attributes["material"] as? String
+        
+        // Parse condition
+        let conditionData = attributes["condition"] as? [String: Any] ?? [:]
+        let conditionGrade = conditionData["grade"] as? String ?? "Good"
+        let conditionScore = conditionData["score"] as? Int ?? 7
+        let conditionDetails = conditionData["details"] as? String ?? ""
+        
+        // Parse identifiers
+        let identifiersData = attributes["identifiers"] as? [String: Any] ?? [:]
+        let styleCode = identifiersData["styleCode"] as? String
+        let upc = identifiersData["upc"] as? String
+        let sku = identifiersData["sku"] as? String
+        let serialNumber = identifiersData["serialNumber"] as? String
+        
+        // Parse other attributes
+        let defects = attributes["defects"] as? [String] ?? []
+        let yearReleased = attributes["yearReleased"] as? String
+        let collaboration = attributes["collaboration"] as? String
+        let specialEdition = attributes["specialEdition"] as? String
+        
+        // Parse main response data
+        let confidence = json["confidence"] as? Double ?? 0.7
+        let evidence = json["evidence"] as? [String] ?? []
+        
+        // Parse pricing
+        let quickSale = suggestedPrice["quickSale"] as? Double ?? 0
+        let market = suggestedPrice["market"] as? Double ?? 0
+        let premium = suggestedPrice["premium"] as? Double ?? 0
+        let reasoning = suggestedPrice["reasoning"] as? String ?? ""
+        
+        // Parse listing content
+        let title = listingContent["title"] as? String ?? ""
+        let description = listingContent["description"] as? String ?? ""
+        let keywords = listingContent["keywords"] as? [String] ?? []
+        let bulletPoints = listingContent["bulletPoints"] as? [String] ?? []
+        
+        // Parse market analysis
+        let marketAnalysis = json["marketAnalysis"] as? [String: Any]
+        let demandLevel = marketAnalysis?["demandLevel"] as? String
+        let competitorCount = marketAnalysis?["competitorCount"] as? Int
+        let recentSales = marketAnalysis?["recentSales"] as? Int
+        let seasonalFactors = marketAnalysis?["seasonalFactors"] as? String
+        
+        // Create ExpertAnalysisResult
+        let itemAttributes = ExpertAnalysisResult.ItemAttributes(
+            brand: brand,
+            model: model,
+            name: name,
+            category: category,
+            size: size,
+            color: color,
+            material: material,
+            condition: ExpertAnalysisResult.ConditionGrade(
+                grade: conditionGrade,
+                score: conditionScore,
+                details: conditionDetails
+            ),
+            defects: defects,
+            identifiers: ExpertAnalysisResult.ItemIdentifiers(
+                styleCode: styleCode,
+                upc: upc,
+                sku: sku,
+                serialNumber: serialNumber
+            ),
+            yearReleased: yearReleased,
+            collaboration: collaboration,
+            specialEdition: specialEdition
+        )
+        
+        let pricingStrategy = ExpertAnalysisResult.PricingStrategy(
+            quickSale: quickSale,
+            market: market,
+            premium: premium,
+            reasoning: reasoning
+        )
+        
+        let content = ExpertAnalysisResult.ListingContent(
+            title: title,
+            description: description,
+            keywords: keywords,
+            bulletPoints: bulletPoints
+        )
+        
+        let insights = marketAnalysis != nil ? ExpertAnalysisResult.MarketInsights(
+            demandLevel: demandLevel ?? "Medium",
+            competitorCount: competitorCount,
+            recentSales: recentSales,
+            seasonalFactors: seasonalFactors
+        ) : nil
+        
+        return ExpertAnalysisResult(
+            attributes: itemAttributes,
+            confidence: confidence,
+            evidence: evidence,
+            suggestedPrice: pricingStrategy,
+            listingContent: content,
+            marketAnalysis: insights,
+            escalatedToGPT5: false // Will implement escalation in next chat
+        )
     }
     
     // MARK: - IMAGE COMPRESSION
@@ -376,6 +367,7 @@ class AIAnalysisService: ObservableObject {
             resizedImage = image
         }
         
+        // Compress to ~750KB max per image
         var compression: CGFloat = 0.8
         var data = resizedImage.jpegData(compressionQuality: compression)
         

@@ -2,12 +2,12 @@
 //  Configuration.swift
 //  ResellAI
 //
-//  Configuration with AI Settings
+//  Configuration with GPT-5 Integration
 //
 
 import Foundation
 
-// MARK: - Configuration with AI
+// MARK: - Configuration with GPT-5
 struct Configuration {
     
     // MARK: - API Keys from Environment Variables
@@ -32,7 +32,8 @@ struct Configuration {
     static let ebayReturnPolicyId = ProcessInfo.processInfo.environment["EBAY_RETURN_POLICY_ID"] ?? ""
     
     // MARK: - API Endpoints
-    static let openAIEndpoint = "https://api.openai.com/v1/chat/completions"
+    static let openAIEndpoint = "https://api.openai.com/v1/chat/completions" // Legacy endpoint
+    static let gpt5Endpoint = "https://api.openai.com/v1/responses" // GPT-5 endpoint
     
     // eBay API endpoints (Production)
     static let ebayProductionAPIBase = "https://api.ebay.com"
@@ -60,22 +61,43 @@ struct Configuration {
     static let defaultEbayFeeRate = 0.1325
     static let defaultPayPalFeeRate = 0.0349
     
-    // Update the AI Configuration section in Configuration.swift
-
-    // MARK: - AI Configuration
+    // MARK: - GPT-5 AI Configuration
     static let aiModel = "gpt-5-mini" // Primary model for cost efficiency
-    static let aiModelFull = "gpt-5" // Escalation model for complex items
-    static let aiMaxTokens = 2000
-    static let aiTemperature = 0.1
-    static let aiConfidenceThreshold = 0.8 // Escalation threshold
+    static let aiModelFull = "gpt-5" // Escalation model for complex/luxury items
+    static let aiNanoModel = "gpt-5-nano" // Ultra-fast for simple items
+    static let aiEndpoint = gpt5Endpoint // Use GPT-5 endpoint
+    
+    // Confidence thresholds
+    static let aiConfidenceThreshold = 0.88 // Auto-accept threshold for easy items
+    static let aiCrossCheckThreshold = 0.70 // Trigger eBay validation
+    static let aiRetryThreshold = 0.65 // Request more photos
+    
+    // Response format
     static let aiResponseFormat = "json_object" // Force JSON output
-
-    // Add luxury brands for auto-escalation
+    
+    // MARK: - Luxury & High-Value Brands (Auto-escalate to GPT-5)
     static let luxuryBrands = [
+        // Fashion Houses
         "Louis Vuitton", "Gucci", "Chanel", "Hermès", "Prada", "Balenciaga",
         "Burberry", "Dior", "Fendi", "Versace", "Saint Laurent", "Bottega Veneta",
+        "Valentino", "Givenchy", "Celine", "Loewe", "Balmain", "Alexander McQueen",
+        
+        // Watches
         "Rolex", "Patek Philippe", "Audemars Piguet", "Richard Mille", "Omega",
-        "Cartier", "Tiffany & Co.", "Van Cleef & Arpels"
+        "Cartier", "Vacheron Constantin", "Jaeger-LeCoultre", "IWC", "Breitling",
+        
+        // Jewelry
+        "Tiffany & Co.", "Van Cleef & Arpels", "Bulgari", "Harry Winston",
+        
+        // Streetwear/Hype
+        "Supreme", "Off-White", "Fear of God", "Chrome Hearts", "Vlone",
+        "Palace", "BAPE", "Yeezy", "Travis Scott", "Fragment"
+    ]
+    
+    // Easy categories for gpt-5-mini
+    static let easyCategories = [
+        "Books", "DVDs", "CDs", "Video Games", "Board Games",
+        "Sealed Electronics", "New in Box Items", "Trading Cards with Text"
     ]
     
     // MARK: - Business Rules
@@ -102,7 +124,7 @@ struct Configuration {
     
     // MARK: - Rate Limiting
     static let ebayAPICallsPerSecond = 5
-    static let openAIMaxTokens = 4000
+    static let openAICallsPerMinute = 500 // GPT-5 rate limits
     static let rapidAPICallsPerMinute = 100
     
     // MARK: - Configuration Validation
@@ -124,10 +146,10 @@ struct Configuration {
     
     static var configurationStatus: String {
         if isFullyConfigured {
-            return "AI Ready - All systems operational"
+            return "GPT-5 Ready - All systems operational"
         } else {
             var missing: [String] = []
-            if openAIKey.isEmpty { missing.append("OpenAI") }
+            if openAIKey.isEmpty { missing.append("OpenAI API Key") }
             if ebayAPIKey.isEmpty { missing.append("eBay API Key") }
             if ebayClientSecret.isEmpty { missing.append("eBay Client Secret") }
             if ebayDevId.isEmpty { missing.append("eBay Dev ID") }
@@ -138,15 +160,23 @@ struct Configuration {
     // MARK: - Development Helpers
     static func validateConfiguration() {
         print("🔧 ResellAI Configuration Status:")
-        print("✅ OpenAI (AI Analysis): \(openAIKey.isEmpty ? "❌ Missing" : "✅ Configured")")
+        print("✅ OpenAI (GPT-5): \(openAIKey.isEmpty ? "❌ Missing" : "✅ Configured")")
         
         if isAIReady {
-            print("🧠 AI Model: \(aiModel)")
-            print("🎯 AI Max Tokens: \(aiMaxTokens)")
-            print("🌡️ AI Temperature: \(aiTemperature)")
+            print("\n🧠 GPT-5 AI System Ready!")
+            print("📊 Models Available:")
+            print("  • GPT-5-mini: Fast, cost-efficient triage")
+            print("  • GPT-5: High accuracy for complex/luxury items")
+            print("  • GPT-5-nano: Ultra-fast for simple items")
+            print("🎯 Confidence Thresholds:")
+            print("  • Auto-accept: \(aiConfidenceThreshold) (easy items)")
+            print("  • Cross-check: \(aiCrossCheckThreshold) (validate with eBay)")
+            print("  • Retry: \(aiRetryThreshold) (need more photos)")
+            print("💎 Luxury brands configured: \(luxuryBrands.count) brands")
+            print("📚 Easy categories: \(easyCategories.count) types")
         }
         
-        print("✅ eBay API Key: \(ebayAPIKey.isEmpty ? "❌ Missing" : "✅ \(ebayAPIKey)")")
+        print("\n✅ eBay API Key: \(ebayAPIKey.isEmpty ? "❌ Missing" : "✅ \(ebayAPIKey)")")
         print("✅ eBay Client Secret: \(ebayClientSecret.isEmpty ? "❌ Missing" : "✅ Configured")")
         print("✅ eBay Dev ID: \(ebayDevId.isEmpty ? "❌ Missing" : "✅ \(ebayDevId)")")
         print("✅ eBay RuName: \(ebayRuName.isEmpty ? "❌ Missing" : "✅ \(ebayRuName)")")
@@ -154,16 +184,7 @@ struct Configuration {
         print("✅ eBay Payment Policy: \(ebayPaymentPolicyId.isEmpty ? "⚠️ Will auto-create" : "✅ Configured")")
         print("✅ eBay Return Policy: \(ebayReturnPolicyId.isEmpty ? "⚠️ Will auto-create" : "✅ Configured")")
         print("✅ Environment: \(ebayEnvironment)")
-        print("📊 Overall Status: \(configurationStatus)")
-        
-        if isAIReady {
-            print("\n🧠 AI Analysis Ready!")
-            print("• Model: \(aiModel)")
-            print("• Max Tokens: \(aiMaxTokens)")
-            print("• Temperature: \(aiTemperature)")
-            print("• Features: Market intelligence, rarity assessment, hype analysis")
-            print("• Accuracy: Professional-level product identification and pricing")
-        }
+        print("\n📊 Overall Status: \(configurationStatus)")
         
         if isEbayConfigured {
             print("\n🎉 eBay Production OAuth 2.0 Integration Ready!")
@@ -178,17 +199,14 @@ struct Configuration {
             print("• User Endpoint: \(ebayUserEndpoint)")
             print("• Inventory API: \(ebaySellInventoryAPI)")
             print("• Scopes: \(ebayRequiredScopes.count) required scopes")
-            print("• Fulfillment Policy: \(ebayFulfillmentPolicyId.isEmpty ? "Will auto-create" : ebayFulfillmentPolicyId)")
-            print("• Payment Policy: \(ebayPaymentPolicyId.isEmpty ? "Will auto-create" : ebayPaymentPolicyId)")
-            print("• Return Policy: \(ebayReturnPolicyId.isEmpty ? "Will auto-create" : ebayReturnPolicyId)")
         }
         
         if isFullyConfigured {
             print("\n🚀 ResellAI Configuration Complete!")
-            print("• AI: ✅ Ready for professional-grade analysis")
+            print("• AI: ✅ GPT-5 ready for product analysis")
             print("• eBay Integration: ✅ Production OAuth 2.0 ready")
             print("• Auto-listing: ✅ Photos to eBay listings automatically")
-            print("• Market Intelligence: ✅ Rarity, hype, and pricing analysis")
+            print("• Two-stage pipeline: ✅ Cost-efficient with accuracy")
         }
     }
     
@@ -261,7 +279,10 @@ struct Configuration {
         "Gaming & Consoles",
         "Sports Memorabilia",
         "Watches & Jewelry",
-        "Art & Antiques"
+        "Art & Antiques",
+        "Books & Media",
+        "Home & Garden",
+        "Toys & Games"
     ]
     
     // MARK: - Hype Brand Recognition
@@ -269,6 +290,6 @@ struct Configuration {
         "Off-White", "Supreme", "Fear of God", "Stone Island", "Yeezy",
         "Travis Scott", "Fragment", "Kaws", "Virgil Abloh", "Palace",
         "A Bathing Ape", "Comme des Garcons", "Rick Owens", "Chrome Hearts",
-        "Rolex", "Patek Philippe", "Richard Mille", "Apple", "PlayStation"
+        "Vetements", "Raf Simons", "Undercover", "Neighborhood", "WTAPS"
     ]
 }
