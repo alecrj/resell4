@@ -2,7 +2,7 @@
 //  AnalysisService.swift
 //  ResellAI
 //
-//  GPT-5 Tiered Analysis System
+//  GPT-5 Tiered Analysis System - Fixed for Responses API
 //
 
 import SwiftUI
@@ -129,7 +129,7 @@ class AIAnalysisService: ObservableObject {
         return false
     }
     
-    // MARK: - GPT-5 API CALL (NEW RESPONSES FORMAT)
+    // MARK: - GPT-5 API CALL (FIXED FOR NEW RESPONSES FORMAT)
     private func performGPT5Analysis(
         model: String,
         images: [UIImage],
@@ -156,7 +156,7 @@ class AIAnalysisService: ObservableObject {
             ]
         }
         
-        // Build request body for new Responses API
+        // Build request body for new Responses API - FIXED FORMAT
         let requestBody: [String: Any] = [
             "model": model,
             "input": [
@@ -169,10 +169,8 @@ class AIAnalysisService: ObservableObject {
                 "effort": reasoning
             ],
             "text": [
-                "verbosity": verbosity
-            ],
-            "response_format": [
-                "type": "json_object"
+                "verbosity": verbosity,
+                "format": "json_object"  // FIXED: moved format to text.format
             ],
             "max_tokens": Configuration.aiMaxTokens,
             "temperature": Configuration.aiTemperature

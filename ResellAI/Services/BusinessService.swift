@@ -2,7 +2,7 @@
 //  BusinessService.swift
 //  ResellAI
 //
-//  Business Service with AI Analysis
+//  Business Service with AI Analysis and Market Data
 //
 
 import SwiftUI
@@ -13,7 +13,7 @@ import FirebaseFirestore
 import CryptoKit
 import SafariServices
 
-// MARK: - BUSINESS SERVICE WITH AI
+// MARK: - BUSINESS SERVICE WITH AI AND MARKET DATA
 class BusinessService: ObservableObject {
     @Published var isAnalyzing = false
     @Published var analysisProgress = "Ready"
@@ -31,6 +31,9 @@ class BusinessService: ObservableObject {
     // AI service
     private let aiService = AIAnalysisService()
     
+    // Market data service
+    private let marketDataService = EbayMarketDataService()
+    
     // eBay Services
     let ebayService = EbayService()
     private let ebayListingService = EbayListingService()
@@ -43,7 +46,7 @@ class BusinessService: ObservableObject {
     private var queueTimer: Timer?
     
     init() {
-        print("🚀 ResellAI Business Service initialized with AI Analysis")
+        print("🚀 ResellAI Business Service initialized with AI Analysis and Market Data")
         loadSavedQueue()
     }
     
@@ -54,7 +57,7 @@ class BusinessService: ObservableObject {
         ebayService.initialize()
     }
     
-    // MARK: - SINGLE ITEM ANALYSIS
+    // MARK: - SINGLE ITEM ANALYSIS WITH MARKET DATA
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             completion(nil)
@@ -86,8 +89,9 @@ class BusinessService: ObservableObject {
         
         updateProgress("Starting GPT-5 analysis...", progress: 0.2)
         
+        // Step 1: AI Analysis
         aiService.analyzeItemWithMarketIntelligence(images: images) { [weak self] expertResult in
-            guard let expertResult = expertResult else {
+            guard let self = self, let expertResult = expertResult else {
                 DispatchQueue.main.async {
                     self?.isAnalyzing = false
                     self?.analysisProgress = "Analysis failed"
@@ -97,26 +101,222 @@ class BusinessService: ObservableObject {
                 return
             }
             
-            self?.updateProgress("Finalizing analysis...", progress: 0.9)
+            self.updateProgress("Fetching market data...", progress: 0.6)
             
-            let finalResult = expertResult.toAnalysisResult()
+            // Step 2: Fetch Market Data
+            let query = self.buildMarketQuery(from: expertResult)
             
-            DispatchQueue.main.async {
-                self?.isAnalyzing = false
-                self?.analysisProgress = "Analysis complete"
-                self?.progressValue = 1.0
+            self.marketDataService.fetchSoldListings(
+                query: query,
+                category: expertResult.attributes.category,
+                condition: expertResult.attributes.condition.grade
+            ) { marketData in
+                self.updateProgress("Calculating optimal pricing...", progress: 0.8)
                 
-                print("✅ AI analysis complete: \(expertResult.attributes.name)")
-                print("🤖 Model used: \(expertResult.escalatedToGPT5 ? "GPT-5 Full" : "GPT-5 Mini")")
-                print("📊 Confidence: \(expertResult.confidence)")
-                print("💰 Market price: $\(String(format: "%.2f", expertResult.suggestedPrice.market))")
+                // Step 3: Combine AI + Market Data
+                let finalResult = self.combineAnalysisWithMarketData(
+                    expertResult: expertResult,
+                    marketData: marketData
+                )
                 
-                completion(finalResult)
+                DispatchQueue.main.async {
+                    self.isAnalyzing = false
+                    self.analysisProgress = "Analysis complete"
+                    self.progressValue = 1.0
+                    
+                    print("✅ AI + Market analysis complete: \(expertResult.attributes.name)")
+                    print("🤖 Model used: \(expertResult.escalatedToGPT5 ? "GPT-5 Full" : "GPT-5 Mini")")
+                    print("📊 Confidence: \(expertResult.confidence)")
+                    
+                    if let marketData = marketData {
+                        print("💰 Market data: \(marketData.soldListings.count) comps found")
+                        print("📈 Median price: $\(marketData.medianPrice ?? 0)")
+                    } else {
+                        print("⚠️ No market data available - using AI estimates")
+                    }
+                    
+                    completion(finalResult)
+                }
             }
         }
     }
     
-    // MARK: - QUEUE PROCESSING
+    // MARK: - BUILD MARKET QUERY
+    private func buildMarketQuery(from result: ExpertAnalysisResult) -> String {
+        var components: [String] = []
+        
+        // Add brand if available
+        if !result.attributes.brand.isEmpty && result.attributes.brand.lowercased() != "unknown" {
+            components.append(result.attributes.brand)
+        }
+        
+        // Add model if available
+        if let model = result.attributes.model, !model.isEmpty {
+            components.append(model)
+        } else {
+            // Use name if no specific model
+            components.append(result.attributes.name)
+        }
+        
+        // Add key identifiers
+        if let styleCode = result.attributes.identifiers.styleCode {
+            components.append(styleCode)
+        }
+        
+        // Add size for footwear/apparel
+        if let size = result.attributes.size {
+            components.append("size \(size)")
+        }
+        
+        // Add color if distinctive
+        if let color = result.attributes.color,
+           !["black", "white", "grey", "gray"].contains(color.lowercased()) {
+            components.append(color)
+        }
+        
+        // Build the query
+        let query = components.joined(separator: " ")
+        print("🔍 Market query: \(query)")
+        return query
+    }
+    
+    // MARK: - COMBINE ANALYSIS WITH MARKET DATA
+    private func combineAnalysisWithMarketData(
+        expertResult: ExpertAnalysisResult,
+        marketData: MarketDataResult?
+    ) -> AnalysisResult {
+        
+        // If we have market data, use it to refine pricing
+        if let marketData = marketData, !marketData.soldListings.isEmpty {
+            let tiers = marketData.priceTiers()
+            
+            // Create refined pricing based on real data
+            let quickPrice = min(tiers.quickSell, expertResult.suggestedPrice.quickSale)
+            let marketPrice = tiers.market
+            let premiumPrice = max(tiers.premium, expertResult.suggestedPrice.premium)
+            
+            // Build enhanced description with market insights
+            let enhancedDescription = buildEnhancedDescription(
+                expertResult.listingContent.description,
+                marketData: marketData,
+                confidence: expertResult.confidence
+            )
+            
+            return AnalysisResult(
+                name: expertResult.attributes.name,
+                brand: expertResult.attributes.brand,
+                category: expertResult.attributes.category,
+                condition: expertResult.attributes.condition.grade,
+                title: expertResult.listingContent.title,
+                description: enhancedDescription,
+                keywords: expertResult.listingContent.keywords,
+                suggestedPrice: marketPrice,
+                quickPrice: quickPrice,
+                premiumPrice: premiumPrice,
+                averagePrice: marketData.averagePrice,
+                marketConfidence: expertResult.confidence,
+                soldListingsCount: marketData.soldListings.count,
+                competitorCount: expertResult.marketAnalysis?.competitorCount,
+                demandLevel: expertResult.marketAnalysis?.demandLevel,
+                listingStrategy: "Data-driven pricing based on \(marketData.soldListings.count) recent sales",
+                sourcingTips: generateSourcingTips(expertResult: expertResult, marketData: marketData),
+                aiConfidence: expertResult.confidence,
+                resalePotential: calculateResalePotential(marketPrice: marketPrice),
+                priceRange: marketData.priceRange.map { EbayPriceRange(low: $0.min, high: $0.max, average: marketData.averagePrice ?? marketPrice) },
+                recentSales: marketData.soldListings.prefix(5).map { listing in
+                    RecentSale(
+                        title: listing.title,
+                        price: listing.price,
+                        condition: listing.condition,
+                        date: listing.soldDate
+                    )
+                },
+                exactModel: expertResult.attributes.model,
+                styleCode: expertResult.attributes.identifiers.styleCode,
+                size: expertResult.attributes.size,
+                colorway: expertResult.attributes.color,
+                releaseYear: expertResult.attributes.yearReleased,
+                subcategory: expertResult.attributes.category
+            )
+        } else {
+            // No market data - use AI estimates only
+            return expertResult.toAnalysisResult()
+        }
+    }
+    
+    // MARK: - HELPER METHODS
+    
+    private func buildEnhancedDescription(_ original: String, marketData: MarketDataResult, confidence: Double) -> String {
+        var enhanced = original
+        
+        if marketData.isEstimate {
+            enhanced += "\n\n📊 Market Analysis: Based on current listings (estimated sold prices)"
+        } else {
+            enhanced += "\n\n📊 Market Analysis: Based on \(marketData.soldListings.count) recent sales"
+        }
+        
+        if let range = marketData.priceRange {
+            enhanced += "\n• Recent sales range: $\(Int(range.min)) - $\(Int(range.max))"
+        }
+        
+        if let median = marketData.medianPrice {
+            enhanced += "\n• Median sold price: $\(Int(median))"
+        }
+        
+        if confidence > 0.9 {
+            enhanced += "\n• High confidence identification (AI: \(Int(confidence * 100))%)"
+        }
+        
+        return enhanced
+    }
+    
+    private func generateSourcingTips(expertResult: ExpertAnalysisResult, marketData: MarketDataResult?) -> [String] {
+        var tips: [String] = []
+        
+        // Price-based tips
+        if let median = marketData?.medianPrice {
+            if median > 100 {
+                tips.append("High-value item - ensure authenticity before listing")
+            }
+            
+            if median > 50 {
+                tips.append("Source for under $\(Int(median * 0.3)) for good margins")
+            }
+        }
+        
+        // Demand-based tips
+        if let demandLevel = expertResult.marketAnalysis?.demandLevel {
+            switch demandLevel {
+            case "High":
+                tips.append("High demand - sells quickly at market price")
+            case "Low":
+                tips.append("Lower demand - price competitively for faster sale")
+            default:
+                break
+            }
+        }
+        
+        // Brand-based tips
+        if Configuration.luxuryBrands.contains(where: { $0.lowercased() == expertResult.attributes.brand.lowercased() }) {
+            tips.append("Luxury brand - verify authenticity and include proof")
+        }
+        
+        if Configuration.hypeBrands.contains(where: { $0.lowercased() == expertResult.attributes.brand.lowercased() }) {
+            tips.append("Hype brand - highlight exclusivity and condition")
+        }
+        
+        return tips
+    }
+    
+    private func calculateResalePotential(marketPrice: Double) -> Int {
+        if marketPrice > 200 { return 10 }
+        if marketPrice > 100 { return 8 }
+        if marketPrice > 50 { return 6 }
+        if marketPrice > 25 { return 4 }
+        return 2
+    }
+    
+    // MARK: - QUEUE PROCESSING (Kept from original)
     func addItemToQueue(photos: [UIImage]) -> UUID {
         let itemId = processingQueue.addItem(photos: photos)
         saveQueue()
@@ -255,9 +455,9 @@ class BusinessService: ObservableObject {
         processingQueue.currentlyProcessing = nextItem.id
         processingQueue.updateItemStatus(nextItem.id, status: .processing)
         
-        print("🧠 Processing queue item \(nextItem.position) with AI")
+        print("🧠 Processing queue item \(nextItem.position) with AI + Market Data")
         
-        // Analyze the item using AI
+        // Analyze the item using AI + Market Data
         analyzeQueueItem(nextItem)
     }
     
@@ -269,36 +469,9 @@ class BusinessService: ObservableObject {
             return
         }
         
-        // Track usage in AuthService
-        authService?.trackUsage(action: "analysis", metadata: [
-            "source": "queue",
-            "item_position": "\(item.position)",
-            "photo_count": "\(photos.count)",
-            "ai_version": "gpt5_tiered"
-        ])
-        
-        // Use AI analysis
-        aiService.analyzeItemWithMarketIntelligence(images: photos) { [weak self] expertResult in
-            guard let self = self else { return }
-            
-            guard let expertResult = expertResult else {
-                self.processQueueItemComplete(
-                    item.id,
-                    result: nil,
-                    error: "AI analysis failed",
-                    shouldCountAgainstLimit: false
-                )
-                return
-            }
-            
-            // Convert to standard AnalysisResult format
-            let finalResult = expertResult.toAnalysisResult()
-            
-            print("✅ Queue item analysis complete: \(expertResult.attributes.name)")
-            print("🤖 Model used: \(expertResult.escalatedToGPT5 ? "GPT-5 Full" : "GPT-5 Mini")")
-            print("💰 Price: $\(String(format: "%.2f", expertResult.suggestedPrice.market))")
-            
-            self.processQueueItemComplete(item.id, result: finalResult, error: nil)
+        // Use the enhanced analyzeItem method that includes market data
+        analyzeItem(photos) { [weak self] result in
+            self?.processQueueItemComplete(item.id, result: result, error: result == nil ? "Analysis failed" : nil)
         }
     }
     
@@ -378,7 +551,7 @@ class BusinessService: ObservableObject {
     }
     
     private func scheduleCompletionNotification(completedCount: Int) {
-        print("📱 Would send notification: \(completedCount) items analyzed with AI")
+        print("📱 Would send notification: \(completedCount) items analyzed with AI + Market Data")
     }
     
     // MARK: - QUEUE PERSISTENCE
@@ -465,7 +638,7 @@ class BusinessService: ObservableObject {
         }
         
         print("📤 Creating eBay listing for: \(analysis.name)")
-        print("• Using AI analysis result")
+        print("• Using AI analysis + Market data")
         
         ebayListingService.createListing(analysis: analysis, images: images, accessToken: accessToken) { [weak self] success, errorMessage in
             if success {
@@ -473,7 +646,8 @@ class BusinessService: ObservableObject {
                     "item_name": analysis.name,
                     "price": String(format: "%.2f", analysis.suggestedPrice),
                     "category": analysis.category,
-                    "ai_version": "gpt5_tiered"
+                    "ai_version": "gpt5_tiered",
+                    "market_data": analysis.soldListingsCount != nil ? "yes" : "no"
                 ])
                 print("✅ eBay listing created successfully")
             }
