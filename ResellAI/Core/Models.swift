@@ -1140,3 +1140,102 @@ extension AnalysisResult {
         return String(format: "$%.2f", premiumPrice)
     }
 }
+// Add this to Models.swift after the existing structs
+
+// MARK: - EXPERT ANALYSIS RESULT
+struct ExpertAnalysisResult: Codable {
+    let attributes: ItemAttributes
+    let confidence: Double
+    let evidence: [String]
+    let suggestedPrice: PricingStrategy
+    let listingContent: ListingContent
+    let marketAnalysis: MarketInsights?
+    let escalatedToGPT5: Bool
+    
+    struct ItemAttributes: Codable {
+        let brand: String
+        let model: String?
+        let name: String
+        let category: String
+        let size: String?
+        let color: String?
+        let material: String?
+        let condition: ConditionGrade
+        let defects: [String]
+        let identifiers: ItemIdentifiers
+        let yearReleased: String?
+        let collaboration: String?
+        let specialEdition: String?
+    }
+    
+    struct ConditionGrade: Codable {
+        let grade: String // "New", "Like New", "Good", "Fair", "Poor"
+        let score: Int // 1-10
+        let details: String
+    }
+    
+    struct ItemIdentifiers: Codable {
+        let styleCode: String?
+        let upc: String?
+        let sku: String?
+        let serialNumber: String?
+    }
+    
+    struct PricingStrategy: Codable {
+        let quickSale: Double
+        let market: Double
+        let premium: Double
+        let reasoning: String
+    }
+    
+    struct ListingContent: Codable {
+        let title: String
+        let description: String
+        let keywords: [String]
+        let bulletPoints: [String]
+    }
+    
+    struct MarketInsights: Codable {
+        let demandLevel: String
+        let competitorCount: Int?
+        let recentSales: Int?
+        let seasonalFactors: String?
+    }
+    
+    // Convert to standard AnalysisResult format
+    func toAnalysisResult() -> AnalysisResult {
+        return AnalysisResult(
+            name: attributes.name,
+            brand: attributes.brand,
+            category: attributes.category,
+            condition: attributes.condition.grade,
+            title: listingContent.title,
+            description: listingContent.description,
+            keywords: listingContent.keywords,
+            suggestedPrice: suggestedPrice.market,
+            quickPrice: suggestedPrice.quickSale,
+            premiumPrice: suggestedPrice.premium,
+            averagePrice: suggestedPrice.market,
+            marketConfidence: confidence,
+            soldListingsCount: marketAnalysis?.recentSales,
+            competitorCount: marketAnalysis?.competitorCount,
+            demandLevel: marketAnalysis?.demandLevel,
+            listingStrategy: "Fixed Price - Competitive",
+            sourcingTips: [],
+            aiConfidence: confidence,
+            resalePotential: Int(confidence * 10),
+            priceRange: EbayPriceRange(
+                low: suggestedPrice.quickSale,
+                high: suggestedPrice.premium,
+                average: suggestedPrice.market
+            ),
+            recentSales: [],
+            exactModel: attributes.model,
+            styleCode: attributes.identifiers.styleCode,
+            size: attributes.size,
+            colorway: attributes.color,
+            releaseYear: attributes.yearReleased,
+            subcategory: attributes.category
+        )
+    }
+}

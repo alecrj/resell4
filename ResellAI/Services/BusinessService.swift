@@ -55,7 +55,6 @@ class BusinessService: ObservableObject {
     }
     
     // MARK: - SINGLE ITEM ANALYSIS
-    // In BusinessService.swift, update the analyzeItem method:
     func analyzeItem(_ images: [UIImage], completion: @escaping (AnalysisResult?) -> Void) {
         guard !images.isEmpty else {
             completion(nil)
@@ -76,7 +75,7 @@ class BusinessService: ObservableObject {
             "source": "single_item",
             "image_count": "\(images.count)",
             "timestamp": ISO8601DateFormatter().string(from: Date()),
-            "ai_version": "v3" // Updated version
+            "ai_version": "gpt5_tiered"
         ])
         
         DispatchQueue.main.async {
@@ -85,8 +84,7 @@ class BusinessService: ObservableObject {
             self.analysisProgress = "Analyzing with AI..."
         }
         
-        // Use the improved AI analysis
-        updateProgress("Identifying item...", progress: 0.2)
+        updateProgress("Starting GPT-5 analysis...", progress: 0.2)
         
         aiService.analyzeItemWithMarketIntelligence(images: images) { [weak self] expertResult in
             guard let expertResult = expertResult else {
@@ -99,7 +97,6 @@ class BusinessService: ObservableObject {
                 return
             }
             
-            // Convert expert result to standard format
             self?.updateProgress("Finalizing analysis...", progress: 0.9)
             
             let finalResult = expertResult.toAnalysisResult()
@@ -109,13 +106,10 @@ class BusinessService: ObservableObject {
                 self?.analysisProgress = "Analysis complete"
                 self?.progressValue = 1.0
                 
-                print("✅ AI analysis complete: \(expertResult.exactProductName)")
-                print("💰 Quick Sale: $\(String(format: "%.2f", expertResult.quickSalePrice))")
-                print("💰 Market Price: $\(String(format: "%.2f", expertResult.marketPrice))")
-                print("💰 Patient Sale: $\(String(format: "%.2f", expertResult.patientSalePrice))")
-                print("🎯 Reasoning: \(expertResult.priceReasoning)")
-                print("🔥 Hype Status: \(expertResult.hypeStatus)")
-                print("💎 Rarity: \(expertResult.rarityLevel)")
+                print("✅ AI analysis complete: \(expertResult.attributes.name)")
+                print("🤖 Model used: \(expertResult.escalatedToGPT5 ? "GPT-5 Full" : "GPT-5 Mini")")
+                print("📊 Confidence: \(expertResult.confidence)")
+                print("💰 Market price: $\(String(format: "%.2f", expertResult.suggestedPrice.market))")
                 
                 completion(finalResult)
             }
@@ -280,7 +274,7 @@ class BusinessService: ObservableObject {
             "source": "queue",
             "item_position": "\(item.position)",
             "photo_count": "\(photos.count)",
-            "ai_version": "v2"
+            "ai_version": "gpt5_tiered"
         ])
         
         // Use AI analysis
@@ -300,8 +294,9 @@ class BusinessService: ObservableObject {
             // Convert to standard AnalysisResult format
             let finalResult = expertResult.toAnalysisResult()
             
-            print("✅ Queue item analysis complete: \(expertResult.exactProductName)")
-            print("💰 Expert pricing: $\(String(format: "%.2f", expertResult.marketPrice))")
+            print("✅ Queue item analysis complete: \(expertResult.attributes.name)")
+            print("🤖 Model used: \(expertResult.escalatedToGPT5 ? "GPT-5 Full" : "GPT-5 Mini")")
+            print("💰 Price: $\(String(format: "%.2f", expertResult.suggestedPrice.market))")
             
             self.processQueueItemComplete(item.id, result: finalResult, error: nil)
         }
@@ -478,7 +473,7 @@ class BusinessService: ObservableObject {
                     "item_name": analysis.name,
                     "price": String(format: "%.2f", analysis.suggestedPrice),
                     "category": analysis.category,
-                    "ai_version": "v2"
+                    "ai_version": "gpt5_tiered"
                 ])
                 print("✅ eBay listing created successfully")
             }

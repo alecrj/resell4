@@ -60,10 +60,23 @@ struct Configuration {
     static let defaultEbayFeeRate = 0.1325
     static let defaultPayPalFeeRate = 0.0349
     
+    // Update the AI Configuration section in Configuration.swift
+
     // MARK: - AI Configuration
-    static let aiModel = "gpt-5-nano" // Fast and cheap for item identification
-    static let aiMaxTokens = 2000 // Not used in responses API
-    static let aiTemperature = 1.0 // Required for gpt-5-nano
+    static let aiModel = "gpt-5-mini" // Primary model for cost efficiency
+    static let aiModelFull = "gpt-5" // Escalation model for complex items
+    static let aiMaxTokens = 2000
+    static let aiTemperature = 0.1
+    static let aiConfidenceThreshold = 0.8 // Escalation threshold
+    static let aiResponseFormat = "json_object" // Force JSON output
+
+    // Add luxury brands for auto-escalation
+    static let luxuryBrands = [
+        "Louis Vuitton", "Gucci", "Chanel", "Hermès", "Prada", "Balenciaga",
+        "Burberry", "Dior", "Fendi", "Versace", "Saint Laurent", "Bottega Veneta",
+        "Rolex", "Patek Philippe", "Audemars Piguet", "Richard Mille", "Omega",
+        "Cartier", "Tiffany & Co.", "Van Cleef & Arpels"
+    ]
     
     // MARK: - Business Rules
     static let minimumROIThreshold = 50.0
